@@ -14,8 +14,13 @@ $here = $PSScriptRoot
 $out = Join-Path $here 'out'
 New-Item -ItemType Directory -Force $out | Out-Null
 
+$runnerDist = "$root\apps\runner\dist"
+if ((-not $Only -or $Only -contains 'web') -and -not (Get-ChildItem $runnerDist -Filter 'opal-runner-*.AppImage' -ErrorAction SilentlyContinue)) {
+  throw "No runner AppImages in $runnerDist. Run 'npm run appimage' in apps\runner first."
+}
+
 $images = [ordered]@{
-  web     = @('-f', "$here\web.Dockerfile", '--build-context', "deploy=$here", "$root\apps\web")
+  web     = @('-f', "$here\web.Dockerfile", '--build-context', "deploy=$here", '--build-context', "runnerdist=$runnerDist", "$root\apps\web")
   search  = @('-f', "$here\search.Dockerfile", "$root\searxng")
   tunnel  = @('-f', "$here\tunnel.Dockerfile", "$here")
   sandbox = @("$root\sandbox")

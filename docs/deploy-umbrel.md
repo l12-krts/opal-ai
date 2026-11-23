@@ -70,7 +70,12 @@ powershell -ExecutionPolicy Bypass -File .\deploy\umbrel\build.ps1
 Builds the four arm64 images and saves them to `deploy\umbrel\out\`. Next compiles natively; only
 the sandbox and a few native packages build under emulation. **Docker Desktop needs about 8 GB of
 memory** (Settings → Resources): with the 2 GB default, `next build` is killed. Tarballs: web
-≈130 MB, sandbox ≈1.2 GB, search ≈100 MB, tunnel ≈60 MB.
+≈560 MB, sandbox ≈1.2 GB, search ≈100 MB, tunnel ≈60 MB.
+
+The web image also carries the Opal Code runner AppImages from `apps\runner\dist` (both arches,
+≈210 MB each; `OPAL_RUNNER_DIST=/opt/opal-runner` in the image), which Code → Machines hands
+out. Build them first with `npm run appimage` in `apps\runner`; `build.ps1` stops if they're
+missing. Rebuild the web image whenever the runner changes.
 
 ```powershell
 powershell -ExecutionPolicy Bypass -File .\deploy\umbrel\make-env.ps1
@@ -109,6 +114,11 @@ Portainer:
 ```powershell
 .\deploy\umbrel\deploy.ps1 -Only web
 ```
+`deploy.ps1` loads the image and then updates the stack, which recreates `web` on the new image.
+A plain **Restart** or **Stop/Start** in Portainer does *not* pick up a new image: it restarts the
+existing container. To do the stack step by hand: Portainer → **Stacks** → `opal` → **Editor** →
+**Update the stack** (leave *Re-pull image* off; the images are local).
+
 New migrations in `apps/web/drizzle/` apply automatically when `web` starts. For environment-only
 changes, edit `.env.umbrel` and run `deploy.ps1 -SkipImages`. After a sandbox rebuild
 (`-Only sandbox`), Opal replaces each agent's container the next time it's used, and the

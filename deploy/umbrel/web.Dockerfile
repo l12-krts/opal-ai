@@ -44,8 +44,13 @@ FROM node:22-bookworm-slim AS runner
 ENV NODE_ENV=production \
     NEXT_TELEMETRY_DISABLED=1 \
     HOSTNAME=0.0.0.0 \
-    PORT=3000
+    PORT=3000 \
+    OPAL_RUNNER_DIST=/opt/opal-runner
 WORKDIR /app
+# The runner AppImages that Code → Machines hands out (/api/code/runner/download). "runner" is a
+# named build context: --build-context runnerdist=apps/runner/dist. First, so the big layer stays
+# cached when only the app changes.
+COPY --from=runnerdist opal-runner-*.AppImage /opt/opal-runner/
 COPY --from=build --chown=node:node /app/.next/standalone ./
 COPY --from=build --chown=node:node /app/.next/static ./.next/static
 COPY --from=build --chown=node:node /app/public ./public
