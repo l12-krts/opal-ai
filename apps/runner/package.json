@@ -1,0 +1,32 @@
+{
+  "name": "@opal/runner",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Opal Code runner: connects a machine to Opal and runs coding agents on it.",
+  "engines": {
+    "node": ">=22"
+  },
+  "bin": {
+    "opal-runner": "./bin/opal-runner.mjs"
+  },
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "dev": "tsx watch src/index.ts",
+    "pair": "tsx src/index.ts pair",
+    "typecheck": "tsc --noEmit",
+    "appimage": "docker buildx build --platform linux/arm64 -f appimage/Dockerfile --output type=local,dest=dist .",
+    "appimage:x64": "docker buildx build --platform linux/amd64 -f appimage/Dockerfile --output type=local,dest=dist ."
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.330",
+    "tsx": "^4.23.15"
+  },
+  "optionalDependencies": {
+    "node-pty": "^1.1.0"
+  },
+  "devDependencies": {
+    "@types/node": "^24.0.0",
+    "typescript": "^5.9.3"
+  }
+}

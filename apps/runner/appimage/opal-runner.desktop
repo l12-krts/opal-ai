@@ -1,0 +1,8 @@
+[Desktop Entry]
+Type=Application
+Name=Opal Runner
+Comment=Connects this machine to Opal Code and runs coding agents on it
+Exec=opal-runner
+Icon=opal-runner
+Terminal=true
+Categories=Development;

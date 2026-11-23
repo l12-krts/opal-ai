@@ -1,0 +1,48 @@
+# Opal's web search. SearXNG asks several engines at once and returns their results as JSON,
+# so one engine turning searches away doesn't stop search. Only reachable from this machine.
+use_default_settings: true
+
+general:
+  instance_name: "Opal search"
+
+server:
+  # The secret comes from SEARXNG_SECRET (docker-compose.yml).
+  limiter: false
+  image_proxy: false
+  public_instance: false
+
+search:
+  safe_search: 1
+  autocomplete: ""
+  formats:
+    - html
+    - json
+
+ui:
+  static_use_hash: true
+
+engines:
+  # Newer SearXNG images leave most web engines off by default, which left only Google CSE, and
+  # Google rate-limits this network. Turn on the engines that answer from here, explicitly.
+  - name: bing
+    disabled: false
+  - name: brave
+    disabled: false
+  - name: yahoo
+    disabled: false
+  - name: mwmbl
+    disabled: false
+  - name: bing news
+    disabled: false
+  - name: brave.news
+    disabled: false
+  # These turn searches from this network away (CAPTCHA, "unusual traffic", access denied),
+  # which only slows every search down.
+  - name: duckduckgo
+    disabled: true
+  - name: google
+    disabled: true
+  - name: google cse
+    disabled: true
+  - name: qwant
+    disabled: true

@@ -1,0 +1,7 @@
+#!/bin/sh
+# Entry point of the Opal runner AppImage: the bundled Node runs the runner's TypeScript through
+# tsx, with the bundled Claude Code on PATH so sign-in and detection find it.
+HERE="$(dirname "$(readlink -f "$0")")"
+export PATH="$HERE/usr/bin:$PATH"
+export OPAL_RUNNER_CMD="${OPAL_RUNNER_CMD:-opal-runner}"
+exec "$HERE/usr/bin/node" --no-warnings --import "file://$HERE/app/node_modules/tsx/dist/loader.mjs" "$HERE/app/src/index.ts" "$@"

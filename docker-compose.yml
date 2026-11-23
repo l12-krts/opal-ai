@@ -1,0 +1,36 @@
+# Local development services. Production compose lives in deploy/ (later).
+name: opal
+
+services:
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: opal
+      POSTGRES_PASSWORD: ${OPAL_DB_PASSWORD:-opal_dev_password}
+      POSTGRES_DB: opal
+    # Bound to localhost only: never expose Postgres on the LAN.
+    ports:
+      - "127.0.0.1:5433:5432"
+    volumes:
+      - opal-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U opal -d opal"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  # Web search for Opal and its agents (SEARXNG_URL). Bound to localhost only.
+  search:
+    image: searxng/searxng:latest
+    restart: unless-stopped
+    environment:
+      SEARXNG_SECRET: ${SEARXNG_SECRET:-opal_dev_search_secret}
+      SEARXNG_BASE_URL: http://127.0.0.1:8888/
+    ports:
+      - "127.0.0.1:8888:8080"
+    volumes:
+      - ./searxng/settings.yml:/etc/searxng/settings.yml:ro
+
+volumes:
+  opal-db:

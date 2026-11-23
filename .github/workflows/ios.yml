@@ -1,0 +1,80 @@
+# Builds the iOS app, and nothing else. Runs when apps/ios changes, or by hand from the Actions tab.
+# The Xcode project is generated from apps/ios/project.yml with XcodeGen (it is not checked in).
+# The build is unsigned: the .ipa artifact can be sideloaded with a tool that re-signs it
+# (AltStore, Sideloadly), but not installed directly.
+name: iOS
+
+on:
+  push:
+    paths:
+      - "apps/ios/**"
+      - ".github/workflows/ios.yml"
+  pull_request:
+    paths:
+      - "apps/ios/**"
+      - ".github/workflows/ios.yml"
+  workflow_dispatch:
+    inputs:
+      base_url:
+        description: "Opal server URL baked into the app (default: the OPAL_BASE_URL repository variable)"
+        required: false
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ios-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    name: Build
+    runs-on: macos-15
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: apps/ios
+    env:
+      # Empty means the value in project.yml.
+      OPAL_BASE_URL: ${{ inputs.base_url || vars.OPAL_BASE_URL }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Show Xcode version
+        run: xcodebuild -version
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Build
+        run: |
+          args=()
+          if [ -n "$OPAL_BASE_URL" ]; then args+=("OPAL_BASE_URL=$OPAL_BASE_URL"); fi
+          xcodebuild build \
+            -project Opal.xcodeproj \
+            -scheme Opal \
+            -configuration Release \
+            -destination "generic/platform=iOS" \
+            -derivedDataPath build \
+            -quiet \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGNING_REQUIRED=NO \
+            CODE_SIGN_IDENTITY="" \
+            "${args[@]}"
+
+      - name: Package unsigned .ipa
+        run: |
+          mkdir -p Payload
+          cp -R build/Build/Products/Release-iphoneos/Opal.app Payload/
+          zip -qry Opal-unsigned.ipa Payload
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Opal-ios-${{ github.sha }}
+          path: apps/ios/Opal-unsigned.ipa
+          if-no-files-found: error
+          retention-days: 14

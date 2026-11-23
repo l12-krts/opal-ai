@@ -1,0 +1,21 @@
+# Preinstalled in every agent computer (/opt/py). Keep in step with the list in
+# apps/web/src/server/ai/prompts.ts (COMPUTER).
+pillow
+numpy
+pandas
+matplotlib
+scipy
+openpyxl
+xlsxwriter
+pypdf
+pdfplumber
+python-docx
+python-pptx
+reportlab
+requests
+httpx
+beautifulsoup4
+lxml
+pyyaml
+tabulate
+python-dateutil

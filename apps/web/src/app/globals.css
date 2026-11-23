@@ -1,0 +1,482 @@
+@import "tailwindcss";
+@import "krts.ui/tailwind.css";
+@source "../../node_modules/streamdown/dist";
+
+/* ── Tokens ──────────────────────────────────────────────────────────────────
+   Monotone neutrals from krts.ui, nudged off pure white/black, plus one accent
+   used only for the few actions that matter (send, unlock, approve). */
+:root {
+  --krts-bg: #fcfcfc;
+  --krts-overlay: #ffffff;
+  --krts-surface: #f1f1f1;
+  --krts-surface-hover: #e8e8e8;
+  --krts-surface-pressed: #dedede;
+  --krts-line: #d9d9d9;
+  --krts-line-subtle: #ebebeb;
+  --krts-fg: #1b1b1b;
+
+  --opal-sidebar: #f6f6f6;
+  --opal-bubble: #efefef;
+  --opal-code: #f4f4f4;
+}
+
+:root.dark,
+[data-theme="dark"] {
+  --krts-bg: #131313;
+  --krts-overlay: #1b1b1b;
+  --krts-surface: #1f1f1f;
+  --krts-surface-hover: #292929;
+  --krts-surface-pressed: #323232;
+  --krts-line: #343434;
+  --krts-line-subtle: #242424;
+  --krts-fg: #ededed;
+
+  --opal-sidebar: #0f0f0f;
+  --opal-bubble: #232323;
+  --opal-code: #191919;
+}
+
+/* ── Accent ──────────────────────────────────────────────────────────────────
+   Chosen in Settings and set as data-accent on <html> (before paint, see layout.tsx).
+   The default, "mono", is white in dark mode and near-black in light mode. Any element can
+   carry data-accent to show another accent, which is how the picker draws its swatches. */
+:root,
+[data-accent="mono"] {
+  --opal-accent: #1b1b1b;
+  --opal-accent-hover: #383838;
+  --opal-accent-fg: #fcfcfc;
+  --opal-accent-line: #1b1b1b;
+}
+:root.dark,
+.dark [data-accent="mono"],
+[data-theme="dark"] {
+  --opal-accent: #f2f2f2;
+  --opal-accent-hover: #ffffff;
+  --opal-accent-fg: #131313;
+  --opal-accent-line: #f2f2f2;
+}
+[data-accent="blue"] {
+  --opal-accent: #d3e6ff;
+  --opal-accent-hover: #c2dcff;
+  --opal-accent-fg: #0b417f;
+  --opal-accent-line: #2d7fe0;
+}
+.dark[data-accent="blue"],
+.dark [data-accent="blue"] {
+  --opal-accent: #a7cfff;
+  --opal-accent-hover: #bcdbff;
+  --opal-accent-fg: #06223f;
+  --opal-accent-line: #8ec2ff;
+}
+[data-accent="teal"] {
+  --opal-accent: #c9f0e6;
+  --opal-accent-hover: #b5e9dc;
+  --opal-accent-fg: #074639;
+  --opal-accent-line: #0f7f68;
+}
+.dark[data-accent="teal"],
+.dark [data-accent="teal"] {
+  --opal-accent: #8fe3cf;
+  --opal-accent-hover: #a8eadb;
+  --opal-accent-fg: #04322a;
+  --opal-accent-line: #7adcc5;
+}
+[data-accent="green"] {
+  --opal-accent: #d6f2cb;
+  --opal-accent-hover: #c5ebb7;
+  --opal-accent-fg: #1c4a11;
+  --opal-accent-line: #2f7d1f;
+}
+.dark[data-accent="green"],
+.dark [data-accent="green"] {
+  --opal-accent: #ade59e;
+  --opal-accent-hover: #c0ecb3;
+  --opal-accent-fg: #10300a;
+  --opal-accent-line: #9ade8a;
+}
+[data-accent="violet"] {
+  --opal-accent: #e5ddff;
+  --opal-accent-hover: #d9ceff;
+  --opal-accent-fg: #3a1d8c;
+  --opal-accent-line: #6a4bd8;
+}
+.dark[data-accent="violet"],
+.dark [data-accent="violet"] {
+  --opal-accent: #c8b8ff;
+  --opal-accent-hover: #d6c9ff;
+  --opal-accent-fg: #1d0f4d;
+  --opal-accent-line: #b8a5ff;
+}
+[data-accent="pink"] {
+  --opal-accent: #ffdaeb;
+  --opal-accent-hover: #ffc9e0;
+  --opal-accent-fg: #7a1244;
+  --opal-accent-line: #c42d74;
+}
+.dark[data-accent="pink"],
+.dark [data-accent="pink"] {
+  --opal-accent: #ffb5d5;
+  --opal-accent-hover: #ffc8df;
+  --opal-accent-fg: #480927;
+  --opal-accent-line: #ffa2cb;
+}
+[data-accent="orange"] {
+  --opal-accent: #ffe2c2;
+  --opal-accent-hover: #ffd5a8;
+  --opal-accent-fg: #743500;
+  --opal-accent-line: #b35d00;
+}
+.dark[data-accent="orange"],
+.dark [data-accent="orange"] {
+  --opal-accent: #ffc98f;
+  --opal-accent-hover: #ffd6a9;
+  --opal-accent-fg: #432000;
+  --opal-accent-line: #ffb56b;
+}
+
+@theme inline {
+  --font-sans: var(--font-allo), ui-sans-serif, system-ui, "Segoe UI", sans-serif;
+  --font-mono: var(--font-jetbrains), ui-monospace, "Cascadia Code", Consolas, monospace;
+
+  --color-sidebar: var(--opal-sidebar);
+  --color-bubble: var(--opal-bubble);
+  --color-code: var(--opal-code);
+  --color-accent: var(--opal-accent);
+  --color-accent-hover: var(--opal-accent-hover);
+  --color-accent-fg: var(--opal-accent-fg);
+  --color-accent-line: var(--opal-accent-line);
+
+  /* Aliases for libraries styled with shadcn token names (Streamdown). */
+  --color-border: var(--krts-line-subtle);
+  --color-background: var(--krts-bg);
+  --color-foreground: var(--krts-fg);
+  --color-muted: var(--krts-surface);
+  --color-muted-foreground: var(--krts-fg-muted);
+  --color-card: var(--krts-overlay);
+  --color-popover: var(--krts-overlay);
+  --color-input: var(--krts-line);
+  --color-ring: var(--opal-accent-line);
+}
+
+@theme {
+  --radius-bubble: 18px;
+  --radius-composer: 20px;
+  --radius-card: 12px;
+}
+
+/* ── Base ────────────────────────────────────────────────────────────────── */
+html {
+  -webkit-text-size-adjust: 100%;
+  text-rendering: optimizeLegibility;
+}
+
+body {
+  background: var(--color-bg);
+  color: var(--color-fg);
+  font-family: var(--font-sans);
+  font-optical-sizing: auto;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  -webkit-tap-highlight-color: transparent;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--opal-accent-line) 28%, transparent);
+}
+
+/* Thin, quiet scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--color-line) transparent;
+}
+
+/* Press feedback for anything pressable we build ourselves. */
+.pressable {
+  transition: transform 140ms var(--ease-out), background-color 120ms ease, color 120ms ease, opacity 120ms ease;
+}
+.pressable:active,
+.pressable[data-pressed] {
+  transform: scale(0.97);
+}
+
+/* Accent button: soft light blue, dark text. Used sparingly. */
+.btn-accent {
+  background: var(--color-accent) !important;
+  color: var(--color-accent-fg) !important;
+  border-color: transparent !important;
+}
+@media (hover: hover) and (pointer: fine) {
+  .btn-accent:hover {
+    background: var(--color-accent-hover) !important;
+  }
+}
+
+/* "Thinking" shimmer: a status indicator, so it may loop. Static under reduced motion. */
+.shimmer-text {
+  background: linear-gradient(
+    90deg,
+    var(--color-fg-subtle) 0%,
+    var(--color-fg-subtle) 40%,
+    var(--color-fg) 50%,
+    var(--color-fg-subtle) 60%,
+    var(--color-fg-subtle) 100%
+  );
+  background-size: 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: opal-shimmer 1.8s linear infinite;
+}
+@keyframes opal-shimmer {
+  from { background-position: 100% 0; }
+  to { background-position: -150% 0; }
+}
+
+/* Live status dot for running agents (real state, not decoration). */
+.status-pulse {
+  animation: opal-pulse 1.6s ease-in-out infinite;
+}
+@keyframes opal-shake {
+  0%, 100% { transform: translateX(0); }
+  25% { transform: translateX(-3px); }
+  75% { transform: translateX(3px); }
+}
+@keyframes opal-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+/* Small things appearing (menus, chips, popovers): quick, from slightly below, never staggered. */
+.opal-pop {
+  animation: opal-pop 160ms var(--ease-out);
+}
+.opal-fade {
+  animation: opal-fade 140ms ease-out;
+}
+@keyframes opal-pop {
+  from { opacity: 0; transform: translateY(4px) scale(0.98); }
+}
+@keyframes opal-fade {
+  from { opacity: 0; }
+}
+
+/* @mentions in the composer: a pill drawn behind the textarea text. Shadow, not padding,
+   so the backdrop stays aligned with the text above it. */
+.opal-mention {
+  color: transparent;
+  background: var(--color-surface-hover);
+  border-radius: 5px;
+  box-shadow: 0 0 0 2px var(--color-surface-hover);
+}
+
+/* App logos (connectors) are drawn for light backgrounds; give them a light tile in dark mode. */
+:root.dark .app-logo,
+[data-theme="dark"] .app-logo {
+  background: #f1f1f1;
+  padding: 3px;
+}
+
+/* Agent faces: a quick blink now and then; eyes glance around while the agent works. */
+.agent-eyes-blink {
+  transform-box: fill-box;
+  transform-origin: center;
+  animation: agent-blink 5s infinite;
+}
+@keyframes agent-blink {
+  0%, 95%, 100% { transform: scaleY(1); }
+  97% { transform: scaleY(0.12); }
+}
+.agent-eyes-look {
+  animation: agent-look 2.6s cubic-bezier(0.65, 0, 0.35, 1) infinite;
+}
+@keyframes agent-look {
+  0%, 12%, 100% { transform: translateX(0); }
+  25%, 42% { transform: translateX(-5px); }
+  58%, 78% { transform: translateX(5px); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .agent-eyes-blink,
+  .agent-eyes-look {
+    animation: none;
+  }
+  .opal-pop {
+    animation: opal-fade 120ms ease-out;
+  }
+  .shimmer-text {
+    animation: none;
+    color: var(--color-fg-muted);
+    background: none;
+  }
+  .status-pulse {
+    animation: none;
+  }
+  .pressable:active,
+  .pressable[data-pressed] {
+    transform: none;
+  }
+}
+
+/* ── Prose (assistant messages) ──────────────────────────────────────────── */
+.prose-opal {
+  font-size: 15px;
+  line-height: 1.65;
+  overflow-wrap: anywhere;
+}
+.prose-opal > * + * {
+  margin-top: 0.75em;
+}
+.prose-opal h1,
+.prose-opal h2,
+.prose-opal h3 {
+  font-weight: 600;
+  line-height: 1.3;
+  margin-top: 1.4em;
+}
+.prose-opal h1 { font-size: 1.3em; }
+.prose-opal h2 { font-size: 1.15em; }
+.prose-opal h3 { font-size: 1.02em; }
+.prose-opal ul,
+.prose-opal ol {
+  padding-left: 1.3em;
+}
+.prose-opal ul { list-style: disc; }
+.prose-opal ol { list-style: decimal; }
+.prose-opal li + li { margin-top: 0.3em; }
+.prose-opal li::marker { color: var(--color-fg-subtle); }
+.prose-opal a {
+  color: var(--color-accent-line);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  text-decoration-thickness: 1px;
+}
+.prose-opal strong { font-weight: 600; }
+.prose-opal blockquote {
+  border-left: 2px solid var(--color-line);
+  padding-left: 0.9em;
+  color: var(--color-fg-muted);
+}
+.prose-opal :not(pre) > code {
+  font-family: var(--font-mono);
+  font-size: 0.86em;
+  background: var(--color-code);
+  border: 1px solid var(--color-line-subtle);
+  border-radius: 5px;
+  padding: 0.1em 0.35em;
+}
+.prose-opal pre {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  line-height: 1.55;
+}
+.prose-opal table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 14px;
+  font-variant-numeric: tabular-nums;
+}
+.prose-opal th,
+.prose-opal td {
+  border-bottom: 1px solid var(--color-line-subtle);
+  padding: 0.45em 0.6em;
+  text-align: left;
+}
+.prose-opal th {
+  font-weight: 500;
+  color: var(--color-fg-muted);
+}
+/* Streamdown wraps tables in a boxed card with a toolbar row. In chat a table reads like the
+   text around it: no card, it fits the column (cells wrap instead of scrolling sideways), and
+   the copy/download/fullscreen buttons float at its top right on hover. */
+.prose-opal [data-streamdown="table-wrapper"] {
+  position: relative;
+  display: block;
+  margin: 1em 0;
+  padding: 0;
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
+.prose-opal [data-streamdown="table-wrapper"] > div:last-child {
+  /* Streamdown caps the height (inline style); the table should grow with its rows. Sideways
+     scrolling stays only as a last resort, when so many columns' longest words can't fit. */
+  max-height: none !important;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: thin;
+  border: 0;
+  border-radius: 0;
+  background: none;
+}
+/* Buttons sit just above the table's top right corner, clear of the header row. */
+.prose-opal [data-streamdown="table-wrapper"] > div:first-child:not(:last-child) {
+  position: absolute;
+  top: -4px;
+  right: 0;
+  z-index: 1;
+  transform: translateY(-100%);
+  padding: 0;
+  border: 0;
+  background: none;
+  box-shadow: none;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 150ms var(--ease-out);
+}
+/* With room beside the column, they go to the right of the table instead. */
+@media (min-width: 1180px) {
+  .prose-opal [data-streamdown="table-wrapper"] > div:first-child:not(:last-child) {
+    top: 0;
+    right: auto;
+    left: calc(100% + 8px);
+    transform: none;
+    flex-direction: column;
+  }
+  /* Bridges the gap so the pointer can travel from the table to the buttons without the
+     hover ending on the way. */
+  .prose-opal [data-streamdown="table-wrapper"] > div:first-child:not(:last-child)::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    bottom: 0;
+    left: -10px;
+    width: 10px;
+  }
+}
+.prose-opal [data-streamdown="table-wrapper"]:hover > div:first-child,
+.prose-opal [data-streamdown="table-wrapper"]:focus-within > div:first-child {
+  opacity: 1;
+  pointer-events: auto;
+}
+/* No hover on touch screens: keep the buttons reachable. */
+@media (hover: none) {
+  .prose-opal [data-streamdown="table-wrapper"] > div:first-child:not(:last-child) {
+    opacity: 1;
+    pointer-events: auto;
+  }
+}
+.prose-opal [data-streamdown="table"] {
+  table-layout: auto;
+}
+.prose-opal [data-streamdown="table-header"] {
+  background: none;
+}
+.prose-opal [data-streamdown="table-body"] > * + * {
+  border-top: 0;
+}
+.prose-opal [data-streamdown="table-header-cell"],
+.prose-opal [data-streamdown="table-cell"] {
+  white-space: normal;
+  /* Words stay whole; only a word longer than its column (a URL) breaks. */
+  overflow-wrap: break-word;
+  padding: 0.45em 0.5em;
+  font-size: 14px;
+}
+.prose-opal [data-streamdown="table-header-cell"]:first-child,
+.prose-opal [data-streamdown="table-cell"]:first-child {
+  padding-left: 0;
+}
+.prose-opal hr {
+  border: 0;
+  border-top: 1px solid var(--color-line-subtle);
+}

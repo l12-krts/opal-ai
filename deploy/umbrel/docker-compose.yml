@@ -1,0 +1,76 @@
+# Opal on the Umbrel: a Portainer stack (Portainer's own Docker daemon, separate from umbrelOS).
+# Images are built on the dev PC for linux/arm64 and loaded into that daemon (build.ps1,
+# deploy.ps1). Secrets come from the stack's environment (Portainer writes it to stack.env).
+# Named volumes only: Portainer on Umbrel loses bind-mounted data when the app restarts.
+# Nothing publishes a port. The only way in is the Tailscale Funnel URL, which leads to Opal's
+# site gate and then its sign-in.
+
+services:
+  web:
+    image: opal-umbrel/web:latest
+    pull_policy: never
+    restart: unless-stopped
+    depends_on:
+      db:
+        condition: service_healthy
+    env_file:
+      - stack.env
+    environment:
+      NODE_ENV: production
+      DATABASE_URL: postgres://opal:${OPAL_DB_PASSWORD}@db:5432/opal
+      SEARXNG_URL: http://search:8080
+      DOCKER_HOST: ""
+      OPAL_SANDBOX_IMAGE: opal-umbrel/sandbox:latest
+      OPAL_SANDBOX_NETWORK: opal-sandbox-net
+    # Agent sandboxes (Opal starting one container per agent on Portainer's Docker daemon) are
+    # off for now: on umbrelOS's Portainer, /var/run/docker.sock inside the docker-in-docker
+    # daemon is an empty directory, not the daemon's socket. Until the socket is found and
+    # mounted here, Opal reports sandboxes as unavailable; everything else works.
+    mem_limit: 1536m
+
+  db:
+    image: postgres:17-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: opal
+      POSTGRES_PASSWORD: ${OPAL_DB_PASSWORD}
+      POSTGRES_DB: opal
+    volumes:
+      - opal-db:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U opal -d opal"]
+      interval: 5s
+      timeout: 3s
+      retries: 20
+    mem_limit: 512m
+
+  search:
+    image: opal-umbrel/search:latest
+    pull_policy: never
+    restart: unless-stopped
+    environment:
+      SEARXNG_SECRET: ${SEARXNG_SECRET}
+      SEARXNG_BASE_URL: http://search:8080/
+    mem_limit: 384m
+
+  tunnel:
+    image: opal-umbrel/tunnel:latest
+    pull_policy: never
+    restart: unless-stopped
+    hostname: opal
+    environment:
+      TS_AUTHKEY: ${TS_AUTHKEY}
+      TS_HOSTNAME: opal
+      TS_STATE_DIR: /var/lib/tailscale
+      TS_SERVE_CONFIG: /config/serve.json
+      TS_USERSPACE: "true"
+      TS_AUTH_ONCE: "true"
+    volumes:
+      - opal-tailscale:/var/lib/tailscale
+    depends_on:
+      - web
+    mem_limit: 128m
+
+volumes:
+  opal-db:
+  opal-tailscale:

@@ -1,0 +1,32 @@
+node_modules/
+.next/
+out/
+dist/
+build/
+*.tsbuildinfo
+next-env.d.ts
+
+# env & secrets
+.env
+.env.*
+!.env.example
+
+# local data
+.data/
+storage/
+*.log
+
+# tauri
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/gen/
+
+# ios
+apps/ios/**/*.xcodeproj/xcuserdata/
+apps/ios/**/DerivedData/
+apps/ios/Opal.xcodeproj/
+
+.DS_Store
+Thumbs.db
+
+# umbrel deploy
+deploy/umbrel/out/
