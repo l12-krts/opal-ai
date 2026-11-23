@@ -54,25 +54,28 @@ struct UnlockView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            OpalMark()
+            Wordmark(height: 30).foregroundStyle(Color.ink).padding(.bottom, 8)
             VStack(alignment: .leading, spacing: 4) {
                 Text("Opal is private for now").font(.headline)
                 Text("Enter the access password to continue.").font(.subheadline).foregroundStyle(.secondary)
             }
             SecureField("Access password", text: $password)
                 .textContentType(.password)
-                .padding(12)
-                .background(.fill.tertiary, in: .rect(cornerRadius: 10))
+                .padding(.horizontal, 16)
+                .frame(height: 50)
+                .background(Color.wash, in: Capsule())
                 .onSubmit { Task { await session.unlock(password: password) } }
             if let error = session.error { Text(error).font(.footnote).foregroundStyle(.red) }
             Button {
                 Task { await session.unlock(password: password) }
             } label: {
-                Text("Unlock").frame(maxWidth: .infinity)
+                Text("Unlock").font(.system(size: 17, weight: .semibold)).foregroundStyle(Color.canvas)
+                    .frame(maxWidth: .infinity).frame(height: 50)
+                    .background(Color.ink, in: Capsule())
             }
-            .buttonStyle(.borderedProminent)
-            .controlSize(.regular)
+            .buttonStyle(PressableStyle())
             .disabled(password.isEmpty || session.busy)
+            .opacity(password.isEmpty ? 0.5 : 1)
         }
         .padding(24)
         .frame(maxWidth: 380)
@@ -84,16 +87,18 @@ struct LoginView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 16) {
-            OpalMark()
+            Wordmark(height: 30).foregroundStyle(Color.ink).padding(.bottom, 8)
             Text("Sign in to Opal").font(.headline)
             Text("You'll sign in on the web, then come straight back here.")
                 .font(.subheadline).foregroundStyle(.secondary)
             Button {
                 session.signIn()
             } label: {
-                Text("Continue").frame(maxWidth: .infinity)
+                Text("Continue").font(.system(size: 17, weight: .semibold)).foregroundStyle(Color.canvas)
+                    .frame(maxWidth: .infinity).frame(height: 50)
+                    .background(Color.ink, in: Capsule())
             }
-            .buttonStyle(.borderedProminent)
+            .buttonStyle(PressableStyle())
             .disabled(session.busy)
             if let error = session.error { Text(error).font(.footnote).foregroundStyle(.red) }
         }

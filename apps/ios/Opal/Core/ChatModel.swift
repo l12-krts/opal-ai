@@ -1,6 +1,17 @@
 import Foundation
 import Observation
 import SwiftUI
+import UIKit
+
+/// A file picked in the composer. It uploads right away; the message waits until it's done.
+struct PendingAttachment: Identifiable {
+    enum State { case uploading, ready(url: String), failed }
+    let id: String
+    let filename: String
+    let mediaType: String
+    let preview: UIImage?
+    var state: State
+}
 
 /// One conversation: loads history, sends messages and applies the server's streamed
 /// UI-message chunks (Server-Sent Events) to the assistant message as they arrive.
@@ -14,6 +25,12 @@ final class ChatModel {
     private(set) var status: Status = .idle
     var title: String = ""
     var studyMode = false
+    /// Composer toggles: hand the turn to agents, answer in handwriting.
+    var useAgents = false
+    var handwriting = false
+    /// The model picked for this chat; nil uses the account default.
+    var modelId: String?
+    private(set) var attachments: [PendingAttachment] = []
     var agentId: String?
     private var started: Bool
     private var task: Task<Void, Never>?
@@ -24,6 +41,30 @@ final class ChatModel {
         self.started = !isNew
         self.session = session
         self.agentId = agentId
+    }
+
+    var uploading: Bool { attachments.contains { if case .uploading = $0.state { return true } else { return false } } }
+
+    func attach(data: Data, filename: String, mediaType: String, preview: UIImage?) {
+        let id = UUID().uuidString
+        withAnimation(Motion.morph) {
+            attachments.append(PendingAttachment(id: id, filename: filename, mediaType: mediaType, preview: preview, state: .uploading))
+        }
+        Task {
+            struct Res: Decodable { struct A: Decodable { let url: String }; let attachment: A }
+            let state: PendingAttachment.State
+            do {
+                let res = try await session.api.upload("/api/attachments", data: data, filename: filename, mediaType: mediaType, as: Res.self)
+                state = .ready(url: res.attachment.url)
+            } catch {
+                state = .failed
+            }
+            if let i = attachments.firstIndex(where: { $0.id == id }) { attachments[i].state = state }
+        }
+    }
+
+    func removeAttachment(_ id: String) {
+        withAnimation(Motion.morph) { attachments.removeAll { $0.id == id } }
     }
 
     var busy: Bool { if case .sending = status { return true }; if case .streaming = status { return true }; return false }
@@ -52,20 +93,37 @@ final class ChatModel {
 
     func send(_ text: String) {
         let trimmed = text.trimmingCharacters(in: .whitespacesAndNewlines)
-        guard !trimmed.isEmpty, !busy else { return }
-        let msgId = String(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(20))
-        withAnimation(.snappy(duration: 0.3)) {
-            messages.append(ChatMessage(id: msgId, role: "user", parts: [.text(id: "t0", text: trimmed)]))
+        let files: [(url: String, a: PendingAttachment)] = attachments.compactMap { a in
+            if case .ready(let url) = a.state { return (url, a) } else { return nil }
         }
-        let body: [String: JSONValue] = [
+        guard !trimmed.isEmpty || !files.isEmpty, !busy, !uploading else { return }
+        let msgId = String(UUID().uuidString.replacingOccurrences(of: "-", with: "").prefix(20))
+        var shown: [Part] = files.enumerated().map { i, f in .file(id: "f\(i)", url: f.url, mediaType: f.a.mediaType, filename: f.a.filename) }
+        var sent: [JSONValue] = files.map { f in
+            .object(["type": .string("file"), "url": .string(f.url), "mediaType": .string(f.a.mediaType), "filename": .string(f.a.filename)])
+        }
+        if !trimmed.isEmpty {
+            shown.append(.text(id: "t0", text: trimmed))
+            sent.insert(.object(["type": .string("text"), "text": .string(trimmed)]), at: 0)
+        }
+        withAnimation(.snappy(duration: 0.3)) {
+            messages.append(ChatMessage(id: msgId, role: "user", parts: shown))
+            attachments = []
+        }
+        var body: [String: JSONValue] = [
             "conversationId": .string(id),
             "mode": .string(studyMode ? "study" : "chat"),
             "message": .object([
                 "id": .string(msgId),
                 "role": .string("user"),
-                "parts": .array([.object(["type": .string("text"), "text": .string(trimmed)])]),
+                "parts": .array(sent),
             ]),
-        ].merging(agentId.map { ["agentId": JSONValue.string($0)] } ?? [:]) { a, _ in a }
+        ]
+        if let agentId { body["agentId"] = .string(agentId) }
+        if let modelId { body["model"] = .string(modelId) }
+        if useAgents || handwriting {
+            body["tools"] = .object(["agents": .bool(useAgents), "handwriting": .bool(handwriting)])
+        }
         started = true
         stream(body)
     }

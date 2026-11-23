@@ -13,21 +13,38 @@ struct AgentsView: View {
             }
             ForEach(agents) { a in
                 Button { onOpen(a) } label: {
-                    HStack(spacing: 12) {
-                        AgentFace(shape: a.shape, color: a.color, size: 36)
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text(a.name).font(.body.weight(.medium))
+                    HStack(spacing: 14) {
+                        AgentFace(shape: a.shape, color: a.color, size: 44)
+                        VStack(alignment: .leading, spacing: 3) {
+                            Text(a.name).font(.system(size: 17, weight: .semibold))
                             Text(a.running == true ? "Working" : (a.preview?.isEmpty == false ? a.preview! : "No messages yet"))
-                                .font(.caption).foregroundStyle(.secondary).lineLimit(1)
+                                .font(.system(size: 14))
+                                .foregroundStyle(a.running == true ? Color.accentColor : Color.secondary)
+                                .lineLimit(1)
                         }
                         Spacer()
+                        if a.running == true { WorkingMark(size: 12).foregroundStyle(Color.accentColor) }
                     }
+                    .padding(.vertical, 8)
                     .contentShape(Rectangle())
                 }
-                .buttonStyle(.plain)
+                .buttonStyle(PressableStyle(scale: 0.98))
+                .listRowBackground(Color.clear)
             }
         }
-        .navigationTitle("Agents")
+        .listStyle(.plain)
+        .scrollContentBackground(.hidden)
+        .topBar {
+            ScreenHeader {
+                Text("Agents")
+                    .font(.system(size: 16, weight: .semibold))
+                    .padding(.horizontal, 18)
+                    .frame(height: 40)
+                    .opalGlass(in: Capsule())
+            }
+        }
+        .background(Color.canvas.ignoresSafeArea())
+        .toolbar(.hidden, for: .navigationBar)
         .task {
             struct Res: Decodable { let agents: [Agent] }
             defer { loading = false }
@@ -74,8 +91,20 @@ struct SettingsView: View {
 
     var body: some View {
         Form {
+            Section {
+                HStack(spacing: 14) {
+                    Text(String((session.userName ?? "?").prefix(1)).uppercased())
+                        .font(.system(size: 20, weight: .semibold))
+                        .frame(width: 52, height: 52)
+                        .background(Color.wash, in: Circle())
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text(session.userName ?? "Signed in").font(.system(size: 17, weight: .semibold))
+                        Text(Config.baseURL.host() ?? "").font(.system(size: 13)).foregroundStyle(.secondary)
+                    }
+                }
+                .padding(.vertical, 4)
+            }
             Section("Account") {
-                Text(session.userName ?? "Signed in")
                 Button("Sign out", role: .destructive) { session.signOut() }
             }
             Section {
@@ -87,7 +116,18 @@ struct SettingsView: View {
                 Text("Shows reasoning in full, raw tool calls, token counts and sandbox details.")
             }
         }
-        .navigationTitle("Settings")
+        .scrollContentBackground(.hidden)
+        .topBar {
+            ScreenHeader {
+                Text("Settings")
+                    .font(.system(size: 16, weight: .semibold))
+                    .padding(.horizontal, 18)
+                    .frame(height: 40)
+                    .opalGlass(in: Capsule())
+            }
+        }
+        .background(Color.sidebar.ignoresSafeArea())
+        .toolbar(.hidden, for: .navigationBar)
         .task {
             struct Res: Decodable { struct S: Decodable { let nerdMode: Bool }; let settings: S }
             nerd = (try? await session.api.send("/api/settings", as: Res.self).settings.nerdMode) ?? false
