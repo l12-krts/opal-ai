@@ -25,7 +25,7 @@ targets:
         ASSETCATALOG_COMPILER_GLOBAL_ACCENT_COLOR_NAME: AccentColor
         TARGETED_DEVICE_FAMILY: "1,2"
         # Base URL of the Opal server. Debug uses your Mac's dev server.
-        OPAL_BASE_URL: "https://app.opal.example"
+        OPAL_BASE_URL: "https://opal.tailefea70.ts.net"
       configs:
         Debug:
           OPAL_BASE_URL: "http://localhost:3000"

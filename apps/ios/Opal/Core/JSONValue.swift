@@ -49,7 +49,7 @@ enum JSONValue: Codable, Hashable, Sendable {
 }
 
 extension JSONEncoder {
-    nonisolated(unsafe) static let pretty: JSONEncoder = {
+    static let pretty: JSONEncoder = {
         let e = JSONEncoder()
         e.outputFormatting = [.prettyPrinted, .sortedKeys, .withoutEscapingSlashes]
         return e

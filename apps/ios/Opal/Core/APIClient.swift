@@ -67,7 +67,7 @@ private struct AnyEncodable: Encodable {
 }
 
 extension JSONDecoder {
-    nonisolated(unsafe) static let opal: JSONDecoder = {
+    static let opal: JSONDecoder = {
         let d = JSONDecoder()
         d.dateDecodingStrategy = .custom { decoder in
             let s = try decoder.singleValueContainer().decode(String.self)

@@ -61,7 +61,9 @@ struct ChatScreen: View {
                     .buttonBorderShape(.capsule)
                     .controlSize(.small)
                 Spacer()
-                Button(action: model.busy ? model.stop : send) {
+                Button {
+                    if model.busy { model.stop() } else { send() }
+                } label: {
                     Image(systemName: model.busy ? "stop.fill" : "arrow.up")
                         .font(.system(size: 14, weight: .semibold))
                         .frame(width: 30, height: 30)

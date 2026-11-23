@@ -49,7 +49,11 @@ struct MainView: View {
                     Task {
                         // Each agent has one thread; the server creates it on first open.
                         struct Res: Decodable { let threadId: String }
-                        let thread = agent.threadId ?? (try? await session.api.send("/api/agents/\(agent.id)/thread", as: Res.self).threadId)
+                        // `??` takes an autoclosure, which can't `await`, so fetch in a separate step.
+                        var thread = agent.threadId
+                        if thread == nil {
+                            thread = try? await session.api.send("/api/agents/\(agent.id)/thread", as: Res.self).threadId
+                        }
                         if let thread { selection = .chat(id: thread, isNew: false, agentId: agent.id) }
                     }
                 })

@@ -16,7 +16,7 @@ on:
   workflow_dispatch:
     inputs:
       base_url:
-        description: "Opal server URL baked into the app (default: the OPAL_BASE_URL repository variable)"
+        description: "Opal server URL baked into the app (default: the OPAL_BASE_URL repository variable, else https://opal.tailefea70.ts.net)"
         required: false
         type: string
 
@@ -36,8 +36,9 @@ jobs:
       run:
         working-directory: apps/ios
     env:
-      # Empty means the value in project.yml.
-      OPAL_BASE_URL: ${{ inputs.base_url || vars.OPAL_BASE_URL }}
+      # The Opal on the Umbrel, reached over Tailscale Funnel. A run input or the OPAL_BASE_URL
+      # repository variable overrides it.
+      OPAL_BASE_URL: ${{ inputs.base_url || vars.OPAL_BASE_URL || 'https://opal.tailefea70.ts.net' }}
     steps:
       - uses: actions/checkout@v4
 
