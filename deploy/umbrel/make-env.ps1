@@ -54,8 +54,7 @@ $lines = @(
   "OPAL_SECRETS_KEY=$(New-Secret 32)",
   "OPAL_DB_PASSWORD=$(New-Secret 24 -Hex)",
   "SEARXNG_SECRET=$(New-Secret 32 -Hex)",
-  "TS_AUTHKEY=$tsKey",
-  'DOCKER_GID=0'
+  "TS_AUTHKEY=$tsKey"
 )
 foreach ($k in $kept.Keys) { $lines += "$k=$($kept[$k])" }
 

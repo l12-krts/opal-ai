@@ -11,7 +11,7 @@ Internet ──HTTPS──▶ Tailscale Funnel ──▶ tunnel (tailscale node 
                                               ▼
                      web (Next.js, production) ──▶ db (Postgres 17)
                               │                 ──▶ search (SearXNG)
-                              └─ /var/run/docker.sock ─▶ sandbox containers (one per agent)
+                              └─ docker socket ─▶ sandbox containers (one per agent)
           all inside Portainer's own Docker daemon (docker-in-docker), apart from umbrelOS
 ```
 
@@ -26,7 +26,9 @@ Internet ──HTTPS──▶ Tailscale Funnel ──▶ tunnel (tailscale node 
 | Database | named volume `opal_opal-db` in Portainer's Docker |
 | Tailscale node state | named volume `opal_opal-tailscale` |
 | Agent workspaces | named volumes `opal-ws-*`, sandbox containers `opal-sbx-*`, network `opal-sandbox-net` |
-| Portainer | http://umbrel.local:9000 (umbrelOS app `portainer`; its Docker data is under `/Apps/portainer`) |
+| Portainer | http://umbrel.local:9000 (umbrelOS app `portainer`; its Docker data is under `/Apps/portainer/data/docker`) |
+| Portainer's Docker socket | `/data/docker.sock` inside the docker-in-docker daemon (`/Apps/portainer/data/docker/docker.sock` on the Umbrel), group 2375. Mounted into `web` at `/var/run/docker.sock`. **`/var/run/docker.sock` inside that daemon is an empty directory, not the socket** |
+| Other stacks in the same Portainer | `halo` and `searxng` (not Opal's; left untouched) |
 
 No container publishes a port on the Umbrel. The only way in is the Funnel URL. From inside the
 tailnet, the same URL works too.
@@ -59,14 +61,19 @@ with `restart: unless-stopped`, `web` waits for Postgres and applies any new mig
 
 From the repo root in PowerShell, on the dev PC (Docker Desktop running):
 
-```powershell
-.\deploy\umbrel\build.ps1
-```
-Builds the four arm64 images and saves them to `deploy\umbrel\out\`. They build under emulation:
-the web image takes a while, and the sandbox image is about 4–5 GB.
+Windows PowerShell may refuse to run scripts; prefix each with
+`powershell -ExecutionPolicy Bypass -File` (as below) instead of changing the system policy.
 
 ```powershell
-.\deploy\umbrel\make-env.ps1
+powershell -ExecutionPolicy Bypass -File .\deploy\umbrel\build.ps1
+```
+Builds the four arm64 images and saves them to `deploy\umbrel\out\`. Next compiles natively; only
+the sandbox and a few native packages build under emulation. **Docker Desktop needs about 8 GB of
+memory** (Settings → Resources): with the 2 GB default, `next build` is killed. Tarballs: web
+≈130 MB, sandbox ≈1.2 GB, search ≈100 MB, tunnel ≈60 MB.
+
+```powershell
+powershell -ExecutionPolicy Bypass -File .\deploy\umbrel\make-env.ps1
 ```
 Writes `deploy\umbrel\.env.umbrel` from `apps\web\.env.local`. It keeps the gate password hash,
 Google client, admin emails and model/API keys, generates fresh server secrets and the Postgres
@@ -74,12 +81,25 @@ password, and asks for the Tailscale auth key. It never prints values. It drops 
 settings, such as email login, localhost URLs and Ollama/LM Studio.
 
 ```powershell
-.\deploy\umbrel\deploy.ps1
+powershell -ExecutionPolicy Bypass -File .\deploy\umbrel\deploy.ps1
 ```
 Asks for the Portainer token (or reads `$env:PORTAINER_API_KEY`), uploads the tarballs into
-Portainer's Docker, finds the Docker socket's group for the sandbox, and creates or updates the
-`opal` stack. Give it about a minute, then open https://opal.tailefea70.ts.net. You get the gate,
-then Google sign-in.
+Portainer's Docker, and creates or updates the `opal` stack, then follows the containers until
+they're up. Open https://opal.tailefea70.ts.net: you get the gate, then Google sign-in.
+
+### Creating or updating the stack by hand (Portainer UI)
+
+If the script's stack step gets stuck (the first deploy did, from a Windows PowerShell connection
+limit that the script now works around), the images are already loaded, so do the stack step in
+Portainer:
+
+1. Copy the stack file:
+   `Get-Content -Raw .\deploy\umbrel\docker-compose.yml | Set-Clipboard`
+2. Portainer → **primary** → **Stacks** → **+ Add stack** (or open `opal` → **Editor** to update).
+3. Name `opal`, **Web editor**, paste.
+4. **Environment variables** → **Load variables from .env file** → `deploy\umbrel\.env.umbrel`.
+   (On an update, the existing variables stay; leave them.)
+5. **Deploy the stack** / **Update the stack**.
 
 ### Updating
 

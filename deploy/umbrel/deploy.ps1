@@ -62,28 +62,10 @@ if (-not $SkipImages) {
   Invoke-Portainer POST "$docker/images/prune?filters=$([uri]::EscapeDataString('{"dangling":["true"]}'))" $null | Out-Null
 }
 
-# Which group owns the daemon's socket, so Opal (an unprivileged user) can start sandboxes.
-$probe = Invoke-Portainer POST "$docker/containers/create?name=opal-gid-probe" @{
-  Image = 'opal-umbrel/web:latest'; User = 'root'; Entrypoint = @('stat'); Cmd = @('-c', '%g', '/var/run/docker.sock')
-  HostConfig = @{ Binds = @('/var/run/docker.sock:/var/run/docker.sock'); AutoRemove = $false }
-}
-try {
-  Invoke-Portainer POST "$docker/containers/$($probe.Id)/start" $null | Out-Null
-  Invoke-Portainer POST "$docker/containers/$($probe.Id)/wait" $null | Out-Null
-  $raw = Invoke-WebRequest -UseBasicParsing -Headers $headers -DisableKeepAlive -TimeoutSec 60 `
-    -Uri "$Portainer$docker/containers/$($probe.Id)/logs?stdout=1"
-  $gid = [regex]::Match([Text.Encoding]::ASCII.GetString($raw.RawContentStream.ToArray()), '\d+\s*$').Value.Trim()
-} finally {
-  Invoke-Portainer DELETE "$docker/containers/$($probe.Id)?force=1" $null | Out-Null
-}
-if (-not $gid) { throw 'Could not read the Docker socket group.' }
-Write-Host "Docker socket group: $gid"
-
 $envList = @()
 foreach ($line in Get-Content $envFile) {
   if ($line -match '^\s*([A-Za-z0-9_]+)=(.*)$') {
-    $value = if ($Matches[1] -eq 'DOCKER_GID') { $gid } else { $Matches[2] }
-    $envList += @{ name = $Matches[1]; value = $value }
+    $envList += @{ name = $Matches[1]; value = $Matches[2] }
   }
 }
 $compose = Get-Content -Raw (Join-Path $here 'docker-compose.yml')

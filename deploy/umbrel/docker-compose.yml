@@ -22,10 +22,14 @@ services:
       DOCKER_HOST: ""
       OPAL_SANDBOX_IMAGE: opal-umbrel/sandbox:latest
       OPAL_SANDBOX_NETWORK: opal-sandbox-net
-    # Agent sandboxes (Opal starting one container per agent on Portainer's Docker daemon) are
-    # off for now: on umbrelOS's Portainer, /var/run/docker.sock inside the docker-in-docker
-    # daemon is an empty directory, not the daemon's socket. Until the socket is found and
-    # mounted here, Opal reports sandboxes as unavailable; everything else works.
+    # Agent sandboxes: Opal starts one container per agent on Portainer's Docker daemon (not
+    # umbrelOS's). umbrelOS runs that docker-in-docker daemon with its socket at /data/docker.sock
+    # (/Apps/portainer/data/docker/docker.sock on the Umbrel), owned by group 2375. Note that
+    # /var/run/docker.sock inside that daemon is NOT the socket.
+    volumes:
+      - /data/docker.sock:/var/run/docker.sock
+    group_add:
+      - "2375"
     mem_limit: 1536m
 
   db:
