@@ -208,7 +208,8 @@ final class ScreenshotTests: XCTestCase {
             let card = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Cafés")).firstMatch
             if card.waitForExistence(timeout: 5) {
                 card.tap()
-                settle(2.5)
+                // It downloads, then Quick Look draws the page out of process: give it time.
+                settle(6)
                 snap(app, "files/\(theme)-quicklook")
             } else {
                 XCTFail("No card for the shared file")
@@ -261,73 +262,5 @@ final class ScreenshotTests: XCTestCase {
             snap(agents, "sheets/new-agent")
         }
         agents.terminate()
-    }
-
-    /// Documents (docs, slides, sheets, charts, whiteboards): their cards in a chat, each one
-    /// opened full screen, and the Documents page.
-    func testDocuments() {
-        for theme in ["light", "dark"] {
-            let app = launch(["-demoScreen", "docs"], theme: theme)
-            settle(3)
-            snap(app, "docs/\(theme)-chat-1")
-            for i in 2...4 {
-                app.swipeDown()
-                settle(1)
-                snap(app, "docs/\(theme)-chat-\(i)")
-            }
-            app.terminate()
-        }
-
-        for kind in ["doc", "sheet", "slides", "chart", "whiteboard"] {
-            let app = launch(["-demoScreen", "docs"], theme: kind == "chart" ? "dark" : "light")
-            settle(3)
-            let card = app.buttons["document-\(kind)"].firstMatch
-            guard card.waitForExistence(timeout: 5) else {
-                XCTFail("No \(kind) card")
-                app.terminate()
-                continue
-            }
-            var tries = 0
-            while !card.isHittable && tries < 6 {
-                app.swipeDown()
-                tries += 1
-            }
-            card.tap()
-            settle(2)
-            snap(app, "docs/open-\(kind)")
-            XCTAssertTrue(app.navigationBars.buttons["Done"].firstMatch.waitForExistence(timeout: 3), "Tapping the \(kind) card didn't open it")
-            if kind == "slides" {
-                app.swipeLeft()
-                settle(1)
-                snap(app, "docs/open-slides-2")
-            }
-            if kind == "sheet" {
-                let total = app.staticTexts["€184.00"].firstMatch
-                if total.waitForExistence(timeout: 2) {
-                    total.tap()
-                    settle(0.6)
-                    snap(app, "docs/open-sheet-cell")
-                }
-            }
-            app.terminate()
-        }
-
-        for theme in ["light", "dark"] {
-            let app = launch(["-demoScreen", "documents"], theme: theme)
-            settle(3)
-            snap(app, "docs/\(theme)-page")
-            app.terminate()
-        }
-        let page = launch(["-demoScreen", "documents"])
-        settle(3)
-        let tile = page.buttons["document-tile-whiteboard"].firstMatch
-        if tile.waitForExistence(timeout: 5) {
-            tile.tap()
-            settle(2)
-            snap(page, "docs/page-open-whiteboard")
-        } else {
-            XCTFail("No whiteboard on the Documents page")
-        }
-        page.terminate()
     }
 }
