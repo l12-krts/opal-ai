@@ -217,10 +217,17 @@ struct ThinkingRow: View {
 /// A quiet row that opens to show more: an icon, a label, and a chevron that turns.
 struct DisclosureRow<Label: View, Content: View>: View {
     var initiallyOpen = false
+    var bordered = true
     @ViewBuilder var label: Label
     @ViewBuilder var content: Content
-    var bordered = true
     @State private var open: Bool?
+
+    init(initiallyOpen: Bool = false, bordered: Bool = true, @ViewBuilder label: () -> Label, @ViewBuilder content: () -> Content) {
+        self.initiallyOpen = initiallyOpen
+        self.bordered = bordered
+        self.label = label()
+        self.content = content()
+    }
 
     var body: some View {
         let isOpen = open ?? initiallyOpen
