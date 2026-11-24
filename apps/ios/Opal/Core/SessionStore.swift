@@ -16,6 +16,9 @@ final class SessionStore: NSObject {
 
     private(set) var phase: Phase
     private(set) var userName: String?
+    /// Models the composer can pick, and the one used when none is picked.
+    private(set) var models: [ModelInfo] = []
+    private(set) var defaultModelId: String?
     var error: String?
     var busy = false
 
@@ -96,9 +99,19 @@ final class SessionStore: NSObject {
     }
 
     func loadUser() async {
-        struct Settings: Decodable { struct User: Decodable { let name: String }; let user: User }
+        struct Settings: Decodable {
+            struct User: Decodable { let name: String }
+            struct S: Decodable { let model: String? }
+            let user: User
+            let settings: S?
+            let models: [ModelInfo]?
+            let defaultModel: String?
+        }
         do {
-            userName = try await api.send("/api/settings", as: Settings.self).user.name
+            let res = try await api.send("/api/settings", as: Settings.self)
+            userName = res.user.name
+            models = res.models ?? []
+            defaultModelId = res.settings?.model ?? res.defaultModel
         } catch let e as APIError where e.status == 401 {
             handleUnauthorized(e)
         } catch {}

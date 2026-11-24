@@ -35,6 +35,7 @@ targets:
         CFBundleDisplayName: Opal
         OpalBaseURL: $(OPAL_BASE_URL)
         UILaunchScreen: {}
+        NSCameraUsageDescription: Take a photo to send to Opal.
         UISupportedInterfaceOrientations: [UIInterfaceOrientationPortrait, UIInterfaceOrientationLandscapeLeft, UIInterfaceOrientationLandscapeRight]
         CFBundleURLTypes:
           - CFBundleURLName: app.opal.auth

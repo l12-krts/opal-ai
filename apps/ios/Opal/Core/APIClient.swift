@@ -47,6 +47,31 @@ final class APIClient: Sendable {
         return (data, response as! HTTPURLResponse)
     }
 
+    /// Uploads one file as multipart form data (field "file").
+    func upload<T: Decodable>(_ path: String, data: Data, filename: String, mediaType: String, as: T.Type) async throws -> T {
+        var req = try request(path, method: "POST")
+        req.timeoutInterval = 120
+        let boundary = "opal-\(UUID().uuidString)"
+        req.setValue("multipart/form-data; boundary=\(boundary)", forHTTPHeaderField: "Content-Type")
+        let safeName = filename.replacingOccurrences(of: "\"", with: "")
+        var body = Data()
+        let crlf = "\r\n"
+        let head = "--\(boundary)\(crlf)Content-Disposition: form-data; name=\"file\"; filename=\"\(safeName)\"\(crlf)Content-Type: \(mediaType)\(crlf)\(crlf)"
+        body.append(Data(head.utf8))
+        body.append(data)
+        body.append(Data("\(crlf)--\(boundary)--\(crlf)".utf8))
+        let (resData, response) = try await URLSession.shared.upload(for: req, from: body)
+        try Self.check(response, resData)
+        return try JSONDecoder.opal.decode(T.self, from: resData)
+    }
+
+    /// Raw bytes of something on the server (attachments, images).
+    func data(_ path: String) async throws -> Data {
+        let (data, response) = try await URLSession.shared.data(for: try request(path))
+        try Self.check(response, data)
+        return data
+    }
+
     static func check(_ response: URLResponse, _ data: Data) throws {
         guard let http = response as? HTTPURLResponse else { return }
         guard (200..<300).contains(http.statusCode) else {

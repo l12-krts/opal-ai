@@ -50,6 +50,8 @@ enum Part: Hashable, Identifiable {
     case agent(AgentRun)
     case agentMessage(id: String, from: String, to: String, text: String)
     case route(route: String, reason: String)
+    /// An attachment on a user message. `url` is Opal's own link (needs the session to load).
+    case file(id: String, url: String, mediaType: String, filename: String)
 
     var id: String {
         switch self {
@@ -58,6 +60,7 @@ enum Part: Hashable, Identifiable {
         case .agent(let run): return "agent-\(run.runId)"
         case .agentMessage(let id, _, _, _): return id
         case .route: return "route"
+        case .file(let id, _, _, _): return id
         }
     }
 
@@ -67,6 +70,7 @@ enum Part: Hashable, Identifiable {
         switch type {
         case "text": return .text(id: "t\(index)", text: v["text"]?.string ?? "")
         case "reasoning": return .reasoning(id: "r\(index)", text: v["text"]?.string ?? "")
+        case "file": return .file(id: "f\(index)", url: v["url"]?.string ?? "", mediaType: v["mediaType"]?.string ?? "", filename: v["filename"]?.string ?? "File")
         case "data-agent": return v["data"].map { .agent(AgentRun($0)) }
         case "data-route": return .route(route: v["data"]?["route"]?.string ?? "direct", reason: v["data"]?["reason"]?.string ?? "")
         case "data-agent-msg":
@@ -95,4 +99,13 @@ struct ChatMessage: Identifiable, Hashable {
     var text: String {
         parts.compactMap { if case .text(_, let t) = $0 { return t } else { return nil } }.joined(separator: "\n\n")
     }
+}
+
+/// A model the composer can pick (GET /api/settings → models). Opal's own tiers come first.
+struct ModelInfo: Decodable, Identifiable, Hashable {
+    let id: String
+    let label: String
+    let providerLabel: String
+    let tier: Bool?
+    let description: String?
 }
