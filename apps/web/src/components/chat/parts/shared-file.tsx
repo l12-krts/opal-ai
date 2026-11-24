@@ -165,11 +165,74 @@ function Preview({ file }: { file: SharedFileView }) {
   if (file.kind === "pdf" && blob) return <iframe src={blob} title={file.name} className="h-[70vh] w-full rounded-[8px] border border-line-subtle bg-white" />;
   if (media === "audio" && blob) return <audio src={blob} controls className="w-full" />;
   if (media === "video" && blob) return <video src={blob} controls className="max-h-[70vh] w-full rounded-[8px] bg-black" />;
+  const rows = text !== undefined && (file.mediaType === "text/csv" || file.name.toLowerCase().endsWith(".csv")) ? parseCsv(text) : null;
+  if (rows && rows.length > 0) {
+    const [head, ...body] = rows;
+    return (
+      <div className="max-h-[70vh] overflow-auto rounded-[8px] border border-line-subtle">
+        <table className="w-full border-collapse text-[13px] tabular-nums">
+          <thead className="sticky top-0 bg-surface">
+            <tr>
+              {head.map((cell, i) => (
+                <th key={i} className="whitespace-nowrap border-b border-line-subtle px-3 py-1.5 text-left font-medium">
+                  {cell}
+                </th>
+              ))}
+            </tr>
+          </thead>
+          <tbody>
+            {body.map((row, r) => (
+              <tr key={r} className="border-b border-line-subtle last:border-0">
+                {head.map((_, c) => (
+                  <td key={c} className="whitespace-nowrap px-3 py-1.5 text-fg/85">
+                    {row[c] ?? ""}
+                  </td>
+                ))}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  }
   return (
     <pre className="max-h-[70vh] overflow-auto whitespace-pre-wrap break-words rounded-[8px] bg-code p-3 font-mono text-[12.5px] leading-5 text-fg/90">
       {text}
     </pre>
   );
+}
+
+/** A CSV as rows (quoted fields, doubled quotes and newlines in quotes), up to 2,000 rows. */
+function parseCsv(text: string): string[][] {
+  const rows: string[][] = [];
+  let row: string[] = [];
+  let cell = "";
+  let quoted = false;
+  for (let i = 0; i < text.length && rows.length < 2000; i++) {
+    const ch = text[i];
+    if (quoted) {
+      if (ch === '"' && text[i + 1] === '"') {
+        cell += '"';
+        i++;
+      } else if (ch === '"') quoted = false;
+      else cell += ch;
+    } else if (ch === '"') quoted = true;
+    else if (ch === ",") {
+      row.push(cell);
+      cell = "";
+    } else if (ch === "\n" || ch === "\r") {
+      if (ch === "\r" && text[i + 1] === "\n") i++;
+      row.push(cell);
+      rows.push(row);
+      row = [];
+      cell = "";
+    } else cell += ch;
+  }
+  if (cell || row.length) {
+    row.push(cell);
+    rows.push(row);
+  }
+  return rows.filter((r) => r.some((c) => c.trim()));
 }
 
 function download(file: SharedFileView) {
