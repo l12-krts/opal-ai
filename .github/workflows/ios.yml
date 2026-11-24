@@ -80,8 +80,91 @@ jobs:
           zip -qry Opal-unsigned.ipa Payload
 
       - uses: actions/upload-artifact@v4
+        # The account's artifact storage can be full; the build itself still counts.
+        continue-on-error: true
         with:
           name: Opal-ios-${{ github.sha }}
           path: apps/ios/Opal-unsigned.ipa
           if-no-files-found: error
           retention-days: 14
+
+  screens:
+    name: Screens
+    # Every screen in demo mode (canned data, no server) on a simulator. The screenshots are
+    # printed into the log as base64 JPEGs between BEGIN-SHOT/END-SHOT lines, so they can be read
+    # back without artifact storage (scripts/ios-shots.py in apps/ios turns a log into files).
+    runs-on: macos-26
+    timeout-minutes: 50
+    defaults:
+      run:
+        working-directory: apps/ios
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Use the newest stable Xcode
+        uses: maxim-lobanov/setup-xcode@v1
+        with:
+          xcode-version: latest-stable
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate Xcode project
+        run: xcodegen generate
+
+      - name: Pick an iPhone simulator
+        id: sim
+        run: |
+          udid=$(xcrun simctl list devices available -j | python3 -c '
+          import json, sys
+          d = json.load(sys.stdin)["devices"]
+          phones = [x for k, v in d.items() if "iOS" in k for x in v if x["name"].startswith("iPhone")]
+          pro = [x for x in phones if x["name"].endswith(" Pro")]
+          print((pro or phones)[-1]["udid"])')
+          echo "udid=$udid" >> "$GITHUB_OUTPUT"
+          xcrun simctl list devices available | grep "$udid"
+
+      - name: Run the screenshot tests
+        continue-on-error: true
+        run: |
+          set -o pipefail
+          mkdir -p "$PWD/shots"
+          # Only errors, Opal's own warnings and the test results: the full log is huge.
+          TEST_RUNNER_SCREENSHOTS_DIR="$PWD/shots" xcodebuild test \
+            -project Opal.xcodeproj \
+            -scheme Opal \
+            -configuration Debug \
+            -destination "id=${{ steps.sim.outputs.udid }}" \
+            -derivedDataPath build \
+            -resultBundlePath screens.xcresult \
+            CODE_SIGNING_ALLOWED=NO \
+            2>&1 | grep -E "error:|warning: .*/Opal(UITests)?/|Test Case|Executed|\*\* TEST"
+
+      - name: Print the screenshots
+        if: always()
+        run: |
+          # Fall back to the test results when the runner couldn't write files.
+          if [ -z "$(find shots -name '*.png' 2>/dev/null | head -1)" ] && [ -d screens.xcresult ]; then
+            xcrun xcresulttool export attachments --path screens.xcresult --output-path xc >/dev/null 2>&1 || true
+            python3 - <<'PY'
+          import json, os, shutil
+          try:
+              manifest = json.load(open("xc/manifest.json"))
+          except Exception:
+              manifest = []
+          for test in manifest:
+              for a in test.get("attachments", []):
+                  name = a.get("suggestedHumanReadableName", a["exportedFileName"]).split("_0_")[0]
+                  dest = os.path.join("shots", name if name.endswith(".png") else name + ".png")
+                  os.makedirs(os.path.dirname(dest), exist_ok=True)
+                  shutil.copy(os.path.join("xc", a["exportedFileName"]), dest)
+          PY
+          fi
+          find shots -name '*.png' | sort | while read -r f; do
+            name="${f#shots/}"
+            sips -s format jpeg -s formatOptions 55 -Z 1100 "$f" --out /tmp/shot.jpg >/dev/null
+            echo "BEGIN-SHOT ${name%.png}.jpg"
+            base64 -b 76 -i /tmp/shot.jpg
+            echo "END-SHOT"
+          done
+          echo "Screenshots: $(find shots -name '*.png' | wc -l)"

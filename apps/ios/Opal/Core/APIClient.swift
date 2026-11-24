@@ -47,8 +47,8 @@ final class APIClient: Sendable {
         return (data, response as! HTTPURLResponse)
     }
 
-    /// Uploads one file as multipart form data (field "file").
-    func upload<T: Decodable>(_ path: String, data: Data, filename: String, mediaType: String, as: T.Type) async throws -> T {
+    /// Uploads one file as multipart form data (field "file" unless told otherwise).
+    func upload<T: Decodable>(_ path: String, field: String = "file", data: Data, filename: String, mediaType: String, extra: [String: String] = [:], as: T.Type) async throws -> T {
         var req = try request(path, method: "POST")
         req.timeoutInterval = 120
         let boundary = "opal-\(UUID().uuidString)"
@@ -56,7 +56,10 @@ final class APIClient: Sendable {
         let safeName = filename.replacingOccurrences(of: "\"", with: "")
         var body = Data()
         let crlf = "\r\n"
-        let head = "--\(boundary)\(crlf)Content-Disposition: form-data; name=\"file\"; filename=\"\(safeName)\"\(crlf)Content-Type: \(mediaType)\(crlf)\(crlf)"
+        for (key, value) in extra.sorted(by: { $0.key < $1.key }) {
+            body.append(Data("--\(boundary)\(crlf)Content-Disposition: form-data; name=\"\(key)\"\(crlf)\(crlf)\(value)\(crlf)".utf8))
+        }
+        let head = "--\(boundary)\(crlf)Content-Disposition: form-data; name=\"\(field)\"; filename=\"\(safeName)\"\(crlf)Content-Type: \(mediaType)\(crlf)\(crlf)"
         body.append(Data(head.utf8))
         body.append(data)
         body.append(Data("\(crlf)--\(boundary)--\(crlf)".utf8))

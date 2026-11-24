@@ -19,6 +19,9 @@ struct CodeMachine: Decodable, Identifiable, Hashable {
     let hostname: String
     let online: Bool
     let agents: [AgentInfo]
+    /// Where new projects go on this machine.
+    var projectsRoot: String?
+    var lastSeenAt: Date?
 
     func agent(_ id: String) -> AgentInfo? { agents.first { $0.id == id } }
 }

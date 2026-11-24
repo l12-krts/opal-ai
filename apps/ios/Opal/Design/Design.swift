@@ -22,10 +22,17 @@ enum Motion {
 @MainActor
 enum Screen {
     static var window: UIWindow? {
-        UIApplication.shared.connectedScenes.lazy.compactMap { ($0 as? UIWindowScene)?.keyWindow }.first
+        let scenes = UIApplication.shared.connectedScenes.compactMap { $0 as? UIWindowScene }
+        return scenes.lazy.compactMap(\.keyWindow).first ?? scenes.first?.windows.first
     }
 
-    static var bounds: CGRect { window?.bounds ?? .zero }
+    /// The window's bounds; the screen's before the window is up. (Zero here once made the first
+    /// screen's composer narrower until something laid it out again.)
+    static var bounds: CGRect {
+        if let window, window.bounds.width > 0 { return window.bounds }
+        let scene = UIApplication.shared.connectedScenes.lazy.compactMap { $0 as? UIWindowScene }.first
+        return scene?.screen.bounds ?? .zero
+    }
 
     /// The display's corner radius, in points. There's no public API for it before iOS 26, so
     /// this goes by screen width; phones with a home button have square corners.
@@ -56,6 +63,8 @@ extension Color {
     static let ink = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.96, alpha: 1) : UIColor(white: 0.067, alpha: 1) })
     /// A quiet fill for rows, bubbles and chips.
     static let wash = Color.primary.opacity(0.065)
+    /// Your messages (the web's `--bubble`): a solid step off the canvas, so text stays crisp.
+    static let bubble = Color(uiColor: UIColor { $0.userInterfaceStyle == .dark ? UIColor(white: 0.17, alpha: 1) : UIColor(white: 0.94, alpha: 1) })
 }
 
 // MARK: Glass
@@ -192,59 +201,57 @@ struct SidebarGlyph: View {
 
 // MARK: Brand
 
-/// The Opal wordmark (mark + "Opal"), drawn from the same outlines as the web.
-struct Wordmark: View {
-    var height: CGFloat = 22
-    var body: some View {
-        Image("Wordmark")
-            .renderingMode(.template)
-            .resizable()
-            .scaledToFit()
-            .frame(height: height)
-            .accessibilityLabel("Opal")
-    }
-}
-
-/// The mark, turning slowly: Opal is working on something.
+/// The mark, breathing: Opal is working on something. Like the web's `.status-pulse` (opacity
+/// 1 → 0.35 → 1 over 1.6s, ease-in-out). Driven by the clock rather than a repeating animation, so
+/// nothing else on screen can get caught up in the loop. Still under reduced motion.
 struct WorkingMark: View {
     var size: CGFloat = 16
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var turning = false
 
     var body: some View {
-        OpalMark(size: size)
-            .rotationEffect(.degrees(turning ? 360 : 0))
-            .onAppear {
-                guard !reduceMotion else { return }
-                withAnimation(.linear(duration: 1.6).repeatForever(autoreverses: false)) { turning = true }
-            }
+        TimelineView(.animation(paused: reduceMotion)) { context in
+            let t = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: 1.6) / 1.6
+            // Ease-in-out from 0 to 1 and back: a cosine.
+            let dip = (1 - cos(t * 2 * .pi)) / 2
+            OpalMark(size: size)
+                .opacity(reduceMotion ? 1 : 1 - 0.65 * dip)
+        }
+        .frame(width: size, height: size)
     }
 }
 
-/// Text with a light sweeping across it while something is in progress.
+/// Text with a light sweeping across it while something is in progress, like the web's
+/// `.shimmer-text`: a band of full-strength ink crosses the dimmed text, then a pause. Clock-driven
+/// for the same reason as `WorkingMark`. Still under reduced motion.
 struct ShimmerText: View {
     let text: String
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var phase: CGFloat = -1
+
+    /// One sweep and its pause, in seconds (the web's 1.8s).
+    private static let period: TimeInterval = 1.8
 
     var body: some View {
-        Text(text)
-            .foregroundStyle(.secondary)
-            .overlay {
-                if !reduceMotion {
-                    GeometryReader { geo in
-                        LinearGradient(colors: [.clear, Color.primary.opacity(0.85), .clear], startPoint: .leading, endPoint: .trailing)
-                            .frame(width: geo.size.width * 0.6)
-                            .offset(x: phase * geo.size.width * 1.2)
-                    }
-                    .mask { Text(text) }
-                    .allowsHitTesting(false)
-                }
+        if reduceMotion {
+            Text(text).foregroundStyle(.secondary)
+        } else {
+            TimelineView(.animation) { context in
+                let t = context.date.timeIntervalSinceReferenceDate.truncatingRemainder(dividingBy: Self.period) / Self.period
+                // The band's centre, in text widths: enters from the left, leaves to the right,
+                // then stays out of sight for the rest of the period.
+                let centre = -0.25 + 3.75 * t
+                Text(text).foregroundStyle(
+                    LinearGradient(
+                        stops: [
+                            .init(color: Color.primary.opacity(0.4), location: 0),
+                            .init(color: Color.primary, location: 0.5),
+                            .init(color: Color.primary.opacity(0.4), location: 1),
+                        ],
+                        startPoint: UnitPoint(x: centre - 0.25, y: 0.5),
+                        endPoint: UnitPoint(x: centre + 0.25, y: 0.5)
+                    )
+                )
             }
-            .onAppear {
-                guard !reduceMotion else { return }
-                withAnimation(.linear(duration: 1.5).repeatForever(autoreverses: false)) { phase = 1.2 }
-            }
+        }
     }
 }
 

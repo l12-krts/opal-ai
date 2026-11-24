@@ -37,6 +37,9 @@ struct Composer<Menu: View>: View {
     @State private var sent = 0
 
     private var width: CGFloat { box.width }
+    /// The width to take when the container doesn't say (some bars ask for an ideal size): the
+    /// screen less the side padding, capped for iPad.
+    private var idealWidth: CGFloat { min(max(Screen.bounds.width - 24, 280), 760) }
     /// How far the large panel sits in from the screen edges.
     private static var panelInset: CGFloat { 10 }
 
@@ -61,7 +64,7 @@ struct Composer<Menu: View>: View {
     }
 
     var body: some View {
-        ComposerLayout(expanded: expanded) {
+        ComposerLayout(expanded: expanded, idealWidth: idealWidth) {
             plusButton
             field
             footer
@@ -71,7 +74,7 @@ struct Composer<Menu: View>: View {
         .background(alignment: .topLeading) { measurer }
         .opalGlass(in: RoundedRectangle(cornerRadius: 26, style: .continuous))
         .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { box = $0 }
-        .overlay(alignment: .topLeading) {
+        .overlay(alignment: .bottomLeading) {
             if menuOpen {
                 let target = panelFrame
                 MenuPanel(
@@ -79,12 +82,13 @@ struct Composer<Menu: View>: View {
                     expandedSize: target.size,
                     expandedRadius: Screen.concentric(inset: Self.panelInset)
                 ) { menu() }
-                    // Sits just above the composer, growing up and out of the "+". Expanded, it
-                    // moves down over the composer to fill the bottom of the screen.
-                    .alignmentGuide(.top) { d in d[.bottom] + 10 }
+                    // Bottom edges lined up, then moved: collapsed, it sits 10pt above the
+                    // composer, growing up out of the "+"; expanded, it fills the bottom of the
+                    // screen. Explicit offsets rather than alignment guides, which a transition
+                    // or conditional can drop.
                     .offset(
                         x: menuExpanded ? target.minX - box.minX : 0,
-                        y: menuExpanded ? target.maxY - (box.minY - 10) : 0
+                        y: menuExpanded ? target.maxY - box.maxY : -(box.height + 10)
                     )
                     .transition(reduceMotion ? AnyTransition.opacity : AnyTransition.modifier(active: PopOut(shown: 0), identity: PopOut(shown: 1)))
             }
@@ -122,6 +126,9 @@ struct Composer<Menu: View>: View {
             .lineLimit(1...8)
             .focused(focus)
             .tint(Color.ink)
+            .accessibilityIdentifier("composer")
+            // Where the text is, so a sent message can fly out of it (see `Flight`).
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { Flight.field = $0 }
             .onChange(of: focus.wrappedValue) { _, focused in
                 // Typing again closes the menu.
                 if focused && menuOpen { withAnimation(Motion.dismiss) { menuOpen = false } }
@@ -144,11 +151,11 @@ struct Composer<Menu: View>: View {
                         }
                         .accessibilityLabel("Turn off \(chip.label)")
                     }
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(.primary)
                     .padding(.leading, 10)
                     .padding(.trailing, 4)
                     .frame(height: 32)
-                    .background(Color.accentColor.opacity(0.12), in: Capsule())
+                    .background(Color.wash, in: Capsule())
                     .transition(.scale(scale: 0.9).combined(with: .opacity))
                 }
             }
@@ -207,11 +214,12 @@ struct Composer<Menu: View>: View {
 /// (attachments). Collapsed: one row. Expanded: header, field, then lead/footer/trail.
 struct ComposerLayout: Layout {
     var expanded: Bool
+    var idealWidth: CGFloat = 360
     static let gap: CGFloat = 6
     private let inset: CGFloat = 8
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let w = proposal.width ?? 360
+        let w = proposal.width ?? idealWidth
         return CGSize(width: w, height: frames(width: w, subviews: subviews).height)
     }
 
@@ -329,6 +337,8 @@ struct MenuPanel<Content: View>: View {
         // A ZStack, so one page fades over the other instead of stacking under it mid-change.
         ZStack(alignment: .topLeading) { content }
             .padding(expanded ? 0 : 8)
+            // Collapsed, the menu takes its own height, not the composer's it's laid out against.
+            .fixedSize(horizontal: false, vertical: !expanded)
             .frame(width: expanded ? expandedSize.width : 300, height: expanded ? expandedSize.height : nil, alignment: .topLeading)
             .clipShape(shape)
             .opalGlass(in: shape)
@@ -358,6 +368,7 @@ struct MenuRow: View {
     let action: () -> Void
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
+    @Environment(\.accent) private var accent
     @State private var appeared = false
 
     var body: some View {
@@ -365,9 +376,9 @@ struct MenuRow: View {
             HStack(spacing: 12) {
                 Image(systemName: systemImage)
                     .font(.system(size: 16, weight: .regular))
-                    .foregroundStyle(checked ? Color.accentColor : .primary)
+                    .foregroundStyle(checked ? accent.line : Color.primary)
                     .frame(width: 36, height: 36)
-                    .background(checked ? Color.accentColor.opacity(0.14) : Color.wash, in: Circle())
+                    .background(checked ? accent.line.opacity(0.14) : Color.wash, in: Circle())
                 VStack(alignment: .leading, spacing: 1) {
                     Text(title).font(.system(size: 16, weight: .medium)).foregroundStyle(.primary)
                     if let subtitle {
@@ -379,7 +390,7 @@ struct MenuRow: View {
                     Text(value).font(.system(size: 14)).foregroundStyle(.secondary).lineLimit(1)
                     Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(.tertiary)
                 } else if checked {
-                    Image(systemName: "checkmark").font(.system(size: 14, weight: .semibold)).foregroundStyle(Color.accentColor)
+                    Image(systemName: "checkmark").font(.system(size: 14, weight: .semibold)).foregroundStyle(accent.line)
                         .transition(.scale(scale: 0.6).combined(with: .opacity))
                 }
             }
@@ -390,9 +401,9 @@ struct MenuRow: View {
         .buttonStyle(MenuRowStyle())
         .opacity(appeared ? 1 : 0)
         .offset(y: appeared || reduceMotion ? 0 : 10)
-        .onAppear {
-            withAnimation(Motion.pop.delay(reduceMotion ? 0 : Double(index) * 0.03)) { appeared = true }
-        }
+        // Scoped to this row, so the rows' rise can't carry anything else along with it.
+        .animation(Motion.pop.delay(reduceMotion ? 0 : Double(index) * 0.03), value: appeared)
+        .onAppear { appeared = true }
         .animation(Motion.quick, value: checked)
         .accessibilityAddTraits(checked ? .isSelected : [])
     }

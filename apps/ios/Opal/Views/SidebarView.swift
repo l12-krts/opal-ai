@@ -7,6 +7,7 @@ struct SidebarView: View {
     @Environment(SessionStore.self) private var session
     @Environment(Shell.self) private var shell
     @Environment(CodeStore.self) private var code
+    @Environment(\.accent) private var accent
     @State private var searching = false
     @State private var query = ""
     @FocusState private var searchFocused: Bool
@@ -20,11 +21,19 @@ struct SidebarView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 2) {
                     if !searching {
-                        NavRow(title: "Opal Code", systemImage: "chevron.left.forwardslash.chevron.right", badge: code.needsYouCount, active: shell.route == .code) {
+                        // Memory, skills and connectors live in Customization; study and
+                        // handwriting in Settings (as on the web).
+                        NavRow(title: "Code", systemImage: "chevron.left.forwardslash.chevron.right", badge: code.needsYouCount, active: shell.route == .code) {
                             shell.go(.code)
                         }
                         NavRow(title: "Agents", systemImage: "person.2", active: shell.route == .agents) {
                             shell.go(.agents)
+                        }
+                        NavRow(title: "Customization", systemImage: "sparkles", active: shell.route == .customization) {
+                            shell.go(.customization)
+                        }
+                        NavRow(title: "Settings", systemImage: "gearshape", active: shell.route == .settings) {
+                            shell.go(.settings)
                         }
                         Color.clear.frame(height: 14)
                     }
@@ -187,27 +196,46 @@ struct SidebarView: View {
                 Button { shell.newChat() } label: {
                     Label("New chat", systemImage: "square.and.pencil")
                         .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(accent.fg)
                         .padding(.horizontal, 20)
                         .frame(height: 50)
-                        .opalGlass(in: Capsule(), interactive: true, tint: .accentColor)
+                        .background(accent.fill, in: Capsule())
+                        .opalGlass(in: Capsule(), interactive: true, tint: accent.fill)
                 }
                 .buttonStyle(PressableStyle())
                 Spacer()
-                Button { shell.go(.settings) } label: {
+                GlassIconButton(themeIcon, size: 50, accessibility: "Theme: \(session.theme.label)") {
+                    let next: [ThemePreference: ThemePreference] = [.system: .light, .light: .dark, .dark: .system]
+                    session.setTheme(next[session.theme] ?? .system)
+                }
+                .contentTransition(.symbolEffect(.replace))
+                .sensoryFeedback(.selection, trigger: session.theme)
+                Menu {
+                    Section(session.userName ?? "") {
+                        Button { shell.go(.settings) } label: { Label("Settings", systemImage: "gearshape") }
+                        Button(role: .destructive) { session.signOut() } label: { Label("Sign out", systemImage: "rectangle.portrait.and.arrow.right") }
+                    }
+                } label: {
                     Text(initials)
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(.primary)
                         .frame(width: 50, height: 50)
                         .opalGlass(in: Circle(), interactive: true)
                 }
-                .buttonStyle(PressableStyle(scale: 0.94))
-                .accessibilityLabel("Settings")
+                .accessibilityLabel("Account")
             }
         }
         .padding(.horizontal, 16)
         .padding(.top, 8)
         .padding(.bottom, 8)
+    }
+
+    private var themeIcon: String {
+        switch session.theme {
+        case .system: "circle.lefthalf.filled"
+        case .light: "sun.max"
+        case .dark: "moon"
+        }
     }
 
     private var initials: String {

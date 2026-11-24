@@ -1,0 +1,183 @@
+import XCTest
+
+/// Opens every screen in demo mode (canned data, no server) and saves a screenshot of each, so
+/// the UI can be checked without a device. Each one is attached to the test results, and when
+/// SCREENSHOTS_DIR is set (TEST_RUNNER_SCREENSHOTS_DIR on the xcodebuild command line) also
+/// written there as a PNG.
+@MainActor
+final class ScreenshotTests: XCTestCase {
+    override func setUp() {
+        continueAfterFailure = true
+    }
+
+    private func launch(_ args: [String], theme: String = "light", accent: String? = nil) -> XCUIApplication {
+        let app = XCUIApplication()
+        app.launchArguments = ["-demo", "-opal-theme", theme] + (accent.map { ["-opal-accent", $0] } ?? []) + args
+        app.launch()
+        return app
+    }
+
+    private func snap(_ app: XCUIApplication, _ name: String) {
+        let shot = app.screenshot()
+        let attachment = XCTAttachment(screenshot: shot)
+        attachment.name = name
+        attachment.lifetime = .keepAlways
+        add(attachment)
+        if let dir = ProcessInfo.processInfo.environment["SCREENSHOTS_DIR"], !dir.isEmpty {
+            let url = URL(fileURLWithPath: dir).appendingPathComponent("\(name).png")
+            try? FileManager.default.createDirectory(at: url.deletingLastPathComponent(), withIntermediateDirectories: true)
+            try? shot.pngRepresentation.write(to: url)
+        }
+    }
+
+    private func settle(_ seconds: TimeInterval = 2.2) {
+        Thread.sleep(forTimeInterval: seconds)
+    }
+
+    /// Every main screen and settings page, light and dark.
+    func testScreens() {
+        let screens: [(String, [String])] = [
+            ("new", ["-demoScreen", "new"]),
+            ("chat", ["-demoScreen", "chat"]),
+            ("agent-chat", ["-demoScreen", "agent"]),
+            ("agents", ["-demoScreen", "agents"]),
+            ("code", ["-demoScreen", "code"]),
+            ("code-thread", ["-demoScreen", "code.thread"]),
+            ("code-new", ["-demoScreen", "code.new"]),
+            ("settings", ["-demoScreen", "settings"]),
+            ("customization", ["-demoScreen", "customization"]),
+            ("sidebar", ["-demoScreen", "chat", "-demoSidebar"]),
+        ]
+        for theme in ["light", "dark"] {
+            for (name, args) in screens {
+                let app = launch(args, theme: theme)
+                settle()
+                snap(app, "\(theme)/\(name)")
+                app.terminate()
+            }
+        }
+    }
+
+    func testSettingsPages() {
+        let pages = ["general", "study", "handwriting", "secrets", "memory", "skills", "connectors", "codeGeneral", "codeMachines", "codeProjects", "codeSkills"]
+        for page in pages {
+            let app = launch(["-demoScreen", "settings.\(page)"], theme: page.hasPrefix("code") ? "dark" : "light")
+            settle()
+            snap(app, "settings/\(page)")
+            if page == "handwriting" || page == "study" {
+                app.swipeUp()
+                settle(1)
+                snap(app, "settings/\(page)-2")
+            }
+            app.terminate()
+        }
+        // The accent follows the pick everywhere (buttons, checkmarks, the cursor).
+        for accent in ["blue", "pink"] {
+            let app = launch(["-demoScreen", "settings.general"], theme: "dark", accent: accent)
+            settle()
+            snap(app, "settings/general-\(accent)")
+            app.terminate()
+        }
+    }
+
+    /// The composer's + menu opens above the composer; the camera grows into a panel that stays
+    /// on screen.
+    func testComposerMenu() {
+        for theme in ["light", "dark"] {
+            let app = launch(["-demoScreen", "new", "-demoMenu"], theme: theme)
+            settle()
+            snap(app, "menu/\(theme)-open")
+            let camera = app.buttons["Camera"]
+            if camera.waitForExistence(timeout: 3) {
+                camera.tap()
+                settle(1.2)
+                snap(app, "menu/\(theme)-camera")
+            }
+            app.terminate()
+        }
+    }
+
+    /// Sending: the message flies up from the composer, then the reply streams in under it.
+    func testSending() {
+        let app = launch(["-demoScreen", "chat"])
+        settle()
+        let field = app.descendants(matching: .any)["composer"].firstMatch
+        XCTAssertTrue(field.waitForExistence(timeout: 5))
+        snap(app, "send/0-idle")
+        field.tap()
+        settle(0.8)
+        snap(app, "send/1-focused")
+        field.typeText("What happens at night?")
+        app.buttons["Send"].firstMatch.tap()
+        Thread.sleep(forTimeInterval: 0.12)
+        snap(app, "send/2-flight")
+        Thread.sleep(forTimeInterval: 0.6)
+        snap(app, "send/3-streaming")
+        settle(1.2)
+        snap(app, "send/4-streaming-later")
+        settle(4)
+        snap(app, "send/5-done")
+        app.terminate()
+
+        // A new chat: the composer must be the same width focused or not.
+        let fresh = launch(["-demoScreen", "new"])
+        settle()
+        snap(fresh, "send/new-unfocused")
+        let f2 = fresh.descendants(matching: .any)["composer"].firstMatch
+        if f2.waitForExistence(timeout: 5) {
+            f2.tap()
+            settle(1)
+            snap(fresh, "send/new-focused")
+        }
+        fresh.terminate()
+    }
+
+    /// The sidebar sliding out, a few frames in.
+    func testSidebarMotion() {
+        let app = launch(["-demoScreen", "chat"])
+        settle()
+        let button = app.buttons["Open sidebar"].firstMatch
+        guard button.waitForExistence(timeout: 5) else { return XCTFail("No sidebar button") }
+        button.tap()
+        for i in 0..<4 {
+            snap(app, "sidebar/open-\(i)")
+            Thread.sleep(forTimeInterval: 0.06)
+        }
+        settle(1)
+        snap(app, "sidebar/open-done")
+        app.terminate()
+    }
+
+    /// Sheets: a code thread's changes, and pairing a machine.
+    func testSheets() {
+        let app = launch(["-demoScreen", "code.thread"], theme: "dark")
+        settle()
+        let changes = app.buttons["Changes"].firstMatch
+        if changes.waitForExistence(timeout: 5) {
+            changes.tap()
+            settle(1.5)
+            snap(app, "sheets/git")
+        }
+        app.terminate()
+
+        let machines = launch(["-demoScreen", "settings.codeMachines"])
+        settle()
+        let connect = machines.buttons["Connect a machine"].firstMatch
+        if connect.waitForExistence(timeout: 5) {
+            connect.tap()
+            settle(1.5)
+            snap(machines, "sheets/pair")
+        }
+        machines.terminate()
+
+        let agents = launch(["-demoScreen", "agents"])
+        settle()
+        let add = agents.buttons["New agent"].firstMatch
+        if add.waitForExistence(timeout: 3) {
+            add.tap()
+            settle(1.2)
+            snap(agents, "sheets/new-agent")
+        }
+        agents.terminate()
+    }
+}

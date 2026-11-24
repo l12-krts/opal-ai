@@ -14,11 +14,30 @@ import UIKit
 final class SessionStore: NSObject {
     enum Phase { case locked, signedOut, signedIn }
 
+    /// What the server can do right now (Settings → Status).
+    struct ServiceStatus: Decodable, Equatable {
+        var ai = false
+        var search = false
+        var connectors = false
+        var sandbox = false
+    }
+
     private(set) var phase: Phase
     private(set) var userName: String?
+    private(set) var email: String?
     /// Models the composer can pick, and the one used when none is picked.
     private(set) var models: [ModelInfo] = []
     private(set) var defaultModelId: String?
+    /// The account's own choice of model (nil: Opal picks).
+    private(set) var chosenModelId: String?
+    private(set) var serverDefaultModelId: String?
+    private(set) var status: ServiceStatus?
+    /// Settings, mirrored from /api/settings. Theme and accent are also kept on the device so the
+    /// app opens in the right colours before the server answers.
+    private(set) var theme: ThemePreference = ThemePreference(rawValue: UserDefaults.standard.string(forKey: "opal-theme") ?? "") ?? .system
+    private(set) var accent: AccentID = AccentID(rawValue: UserDefaults.standard.string(forKey: "opal-accent") ?? "") ?? .default
+    private(set) var nerdMode = UserDefaults.standard.bool(forKey: "opal-nerd")
+    private(set) var memoryEnabled = true
     var error: String?
     var busy = false
 
@@ -27,6 +46,13 @@ final class SessionStore: NSObject {
     private var authSession: ASWebAuthenticationSession?
 
     override init() {
+        if Demo.enabled {
+            gateToken = "demo"
+            sessionToken = "demo"
+            phase = .signedIn
+            super.init()
+            return
+        }
         let gate = Keychain.get("gate")
         let session = Keychain.get("session")
         phase = gate == nil ? .locked : (session == nil ? .signedOut : .signedIn)
@@ -99,22 +125,76 @@ final class SessionStore: NSObject {
     }
 
     func loadUser() async {
-        struct Settings: Decodable {
-            struct User: Decodable { let name: String }
-            struct S: Decodable { let model: String? }
+        struct Res: Decodable {
+            struct User: Decodable { let name: String; let email: String? }
+            struct S: Decodable {
+                let model: String?
+                let nerdMode: Bool?
+                let theme: String?
+                let accent: String?
+                let memoryEnabled: Bool?
+            }
             let user: User
             let settings: S?
             let models: [ModelInfo]?
             let defaultModel: String?
+            let status: ServiceStatus?
         }
         do {
-            let res = try await api.send("/api/settings", as: Settings.self)
+            let res = try await api.send("/api/settings", as: Res.self)
             userName = res.user.name
+            email = res.user.email
             models = res.models ?? []
+            chosenModelId = res.settings?.model
+            serverDefaultModelId = res.defaultModel
             defaultModelId = res.settings?.model ?? res.defaultModel
+            status = res.status
+            if let s = res.settings {
+                if let v = s.nerdMode { nerdMode = v; UserDefaults.standard.set(v, forKey: "opal-nerd") }
+                if let v = s.theme.flatMap(ThemePreference.init(rawValue:)) { theme = v; UserDefaults.standard.set(v.rawValue, forKey: "opal-theme") }
+                if let v = s.accent.flatMap(AccentID.init(rawValue:)) { accent = v; UserDefaults.standard.set(v.rawValue, forKey: "opal-accent") }
+                if let v = s.memoryEnabled { memoryEnabled = v }
+            }
         } catch let e as APIError where e.status == 401 {
             handleUnauthorized(e)
         } catch {}
+    }
+
+    // MARK: Settings
+
+    func setAccent(_ value: AccentID) {
+        accent = value
+        UserDefaults.standard.set(value.rawValue, forKey: "opal-accent")
+        patchSettings(["accent": .string(value.rawValue)])
+    }
+
+    func setTheme(_ value: ThemePreference) {
+        theme = value
+        UserDefaults.standard.set(value.rawValue, forKey: "opal-theme")
+        patchSettings(["theme": .string(value.rawValue)])
+    }
+
+    func setNerdMode(_ value: Bool) {
+        nerdMode = value
+        UserDefaults.standard.set(value, forKey: "opal-nerd")
+        patchSettings(["nerdMode": .bool(value)])
+    }
+
+    func setMemoryEnabled(_ value: Bool) {
+        memoryEnabled = value
+        patchSettings(["memoryEnabled": .bool(value)])
+    }
+
+    /// nil lets Opal pick.
+    func setDefaultModel(_ id: String?) {
+        chosenModelId = id
+        defaultModelId = id ?? serverDefaultModelId
+        patchSettings(["model": id.map(JSONValue.string) ?? .null])
+    }
+
+    private func patchSettings(_ body: [String: JSONValue]) {
+        let api = api
+        Task { _ = try? await api.sendRaw("/api/settings", method: "PATCH", json: JSONValue.object(body)) }
     }
 
     func handleUnauthorized(_ e: APIError) {
