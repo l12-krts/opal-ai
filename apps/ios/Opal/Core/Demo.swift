@@ -1,4 +1,5 @@
 import Foundation
+import UIKit
 
 /// Demo mode, for screenshots and UI tests: launched with `-demo`, the app answers every API call
 /// from the canned data below instead of a server, and can open straight on a screen:
@@ -6,6 +7,7 @@ import Foundation
 ///     -demo -demoScreen code.thread      a pushed screen
 ///     -demo -demoScreen settings.memory  any settings page
 ///     -demo -demoSidebar                 with the sidebar out
+///     -demo -demoOffline                 as if in airplane mode (every request fails)
 ///     -opal-theme dark                   (UserDefaults) the theme; -opal-accent blue the accent
 enum Demo {
     static let enabled = ProcessInfo.processInfo.arguments.contains("-demo")
@@ -55,6 +57,11 @@ final class DemoURLProtocol: URLProtocol, @unchecked Sendable {
 
     override func startLoading() {
         guard let url = request.url else { return }
+        // Airplane mode: every request fails the way it does on a phone with no connection.
+        if Demo.flag("-demoOffline") {
+            client?.urlProtocol(self, didFailWithError: URLError(.notConnectedToInternet))
+            return
+        }
         let method = request.httpMethod ?? "GET"
         let path = url.path
         let query = URLComponents(url: url, resolvingAgainstBaseURL: false)?.queryItems ?? []
@@ -91,10 +98,18 @@ final class DemoURLProtocol: URLProtocol, @unchecked Sendable {
         case ("GET", "/api/handwriting/profiles"): return respond(200, DemoData.handwritingProfiles)
         case ("POST", "/api/handwriting/profiles"): return respond(200, #"{"profile":{"id":"h2","name":"New","glyphCount":0}}"#)
         case ("POST", "/api/attachments"): return respond(200, #"{"attachment":{"url":"/api/attachments/demo"}}"#)
+        case ("GET", "/api/attachments/demo-cafes-pdf"): return respond(200, data: DemoData.cafesPDF(), type: "application/pdf")
         case ("POST", "/api/code/threads"): return respond(200, #"{"threads":["ct-1"]}"#)
         case ("GET", _): return respond(404, #"{"error":"not_found","message":"Not in the demo"}"#)
         default: return respond(200, #"{"ok":true}"#)
         }
+    }
+
+    private func respond(_ status: Int, data: Data, type: String) {
+        guard let url = request.url, let response = HTTPURLResponse(url: url, statusCode: status, httpVersion: "HTTP/1.1", headerFields: ["Content-Type": type]) else { return }
+        client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
+        client?.urlProtocol(self, didLoad: data)
+        client?.urlProtocolDidFinishLoading(self)
     }
 
     private func respond(_ status: Int, _ body: String) {
@@ -128,6 +143,27 @@ final class DemoURLProtocol: URLProtocol, @unchecked Sendable {
 
 /// The canned answers. Every name, address and account here is made up.
 enum DemoData {
+    /// The PDF the demo agent shares: a page drawn on the spot.
+    static func cafesPDF() -> Data {
+        let page = CGRect(x: 0, y: 0, width: 612, height: 792)
+        return UIGraphicsPDFRenderer(bounds: page).pdfData { ctx in
+            ctx.beginPage()
+            let body: [NSAttributedString.Key: Any] = [.font: UIFont.systemFont(ofSize: 14), .foregroundColor: UIColor.darkGray]
+            NSAttributedString(string: "Cafés near the office", attributes: [.font: UIFont.systemFont(ofSize: 26, weight: .semibold)])
+                .draw(at: CGPoint(x: 56, y: 64))
+            let rows = [
+                ("Field Notes Coffee", "92 Mbps · plugs at every window seat · quiet before 11"),
+                ("Copper Kettle", "61 Mbps · plugs along the back wall · busy at lunch"),
+                ("Lantern Roasters", "140 Mbps · a few plugs · open late"),
+            ]
+            for (i, row) in rows.enumerated() {
+                let y = 130 + CGFloat(i) * 64
+                NSAttributedString(string: row.0, attributes: [.font: UIFont.systemFont(ofSize: 17, weight: .medium)]).draw(at: CGPoint(x: 56, y: y))
+                NSAttributedString(string: row.1, attributes: body).draw(at: CGPoint(x: 56, y: y + 24))
+            }
+        }
+    }
+
     static func ago(_ seconds: Double) -> String {
         "\"" + Date().addingTimeInterval(-seconds).ISO8601Format() + "\""
     }
@@ -171,7 +207,7 @@ enum DemoData {
             {"conversation":{"title":"Scout","mode":"chat"},
              "messages":[
               {"id":"am1","role":"user","parts":[{"type":"text","text":"Find three cafés near the office with good Wi-Fi and plugs."}],"metadata":null},
-              {"id":"am2","role":"assistant","parts":[{"type":"text","text":"Here are three that fit, all within ten minutes on foot:\n\n1. **Field Notes Coffee**: fast Wi-Fi, plugs at every window seat, quiet before 11.\n2. **Copper Kettle**: big tables, plugs along the back wall, busy at lunch.\n3. **Lantern Roasters**: the fastest Wi-Fi I measured, but only a few plugs.\n\nWant me to check opening hours for Saturday?"}],"metadata":{"model":"opal-auto"}}
+              {"id":"am2","role":"assistant","parts":[{"type":"text","text":"Here are three that fit, all within ten minutes on foot:\n\n1. **Field Notes Coffee**: fast Wi-Fi, plugs at every window seat, quiet before 11.\n2. **Copper Kettle**: big tables, plugs along the back wall, busy at lunch.\n3. **Lantern Roasters**: the fastest Wi-Fi I measured, but only a few plugs.\n\nI put them in a PDF with the speeds I measured:"},{"type":"tool-share_file","toolCallId":"sf1","state":"output-available","input":{"path":"cafes.pdf"},"output":{"ok":true,"file":{"id":"demo-cafes-pdf","name":"Cafés near the office.pdf","mediaType":"application/pdf","kind":"pdf","size":48213,"url":"/api/attachments/demo-cafes-pdf"}}},{"type":"text","text":"Want me to check opening hours for Saturday?"}],"metadata":{"model":"opal-auto"}}
              ]}
             """#
         }

@@ -13,6 +13,8 @@ struct OpalApp: App {
         WindowGroup {
             let accent = AccentPalette(session.accent)
             RootView()
+                // A tap outside the keyboard puts it away, everywhere.
+                .background(KeyboardDismissInstaller())
                 .environment(session)
                 .environment(\.accent, accent)
                 .tint(accent.line)

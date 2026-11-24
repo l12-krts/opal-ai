@@ -8,6 +8,8 @@ import UniformTypeIdentifiers
 @MainActor
 enum Flight {
     static var field: CGRect = .zero
+    /// The whole composer on screen (taps there don't put the keyboard away).
+    static var composer: CGRect = .zero
     private static var pending: (text: String, from: CGRect, at: Date)?
 
     static func launch(_ text: String) {
@@ -75,8 +77,6 @@ struct ChatScreen: View {
             .scrollDismissesKeyboard(.interactively)
             // The greeting (or "Message Scout") stays put: there's nothing to scroll to yet.
             .scrollDisabled(showsWelcome)
-            // A tap outside the keyboard puts it away (buttons in the thread still work).
-            .simultaneousGesture(TapGesture().onEnded { if focused { focused = false } })
             .startsAtBottom()
             .onGeometryChange(for: CGFloat.self) { g in
                 g.size.height - g.safeAreaInsets.top - g.safeAreaInsets.bottom
@@ -171,7 +171,7 @@ struct ChatScreen: View {
                 ThinkingRow().transition(.opacity)
             }
             if failed, last?.role != "assistant" {
-                ThinkingRow(error: true, onRetry: { model.regenerate() })
+                ThinkingRow(error: true, message: model.failure, onRetry: { model.retry() })
             }
             Color.clear.frame(height: 1)
                 .id("end")
@@ -322,7 +322,7 @@ struct ChatScreen: View {
     private func suggestion(_ title: String, systemImage: String, index: Int, action: @escaping () -> Void) -> some View {
         Button {
             withAnimation(Motion.morph) { action() }
-            // After the tap has finished (the screen's tap-to-dismiss sees the same tap).
+            // After the tap has finished (the window's tap-to-dismiss sees the same tap).
             Task { @MainActor in focused = true }
         } label: {
             HStack(spacing: 14) {
@@ -377,7 +377,12 @@ struct ChatScreen: View {
                     // The keyboard pushed the composer up while the latest message was in view:
                     // keep it in view.
                     if old < .greatestFiniteMagnitude, top < old - 1, end.top <= old + 60, !showsWelcome {
-                        withAnimation(.easeOut(duration: 0.25)) { scroller?.scrollTo("end", anchor: .bottom) }
+                        // A moment later, once the scroll view has taken the keyboard's room;
+                        // right away there's nowhere to scroll to yet.
+                        Task { @MainActor in
+                            try? await Task.sleep(for: .milliseconds(40))
+                            withAnimation(.easeOut(duration: 0.25)) { scroller?.scrollTo("end", anchor: .bottom) }
+                        }
                     }
                     updateEndInView()
                 }
@@ -741,17 +746,23 @@ struct UserBubble: View {
                 ScrollView(.horizontal, showsIndicators: false) {
                     HStack(spacing: 6) {
                         ForEach(files) { f in
-                            if f.mediaType.hasPrefix("image/") {
-                                AuthedImage(path: f.url)
-                                    .frame(width: 120, height: 120)
-                                    .clipShape(.rect(cornerRadius: 16, style: .continuous))
-                            } else {
-                                Label(f.filename, systemImage: "doc")
-                                    .font(.footnote)
-                                    .lineLimit(1)
-                                    .padding(.horizontal, 12)
-                                    .frame(height: 36)
-                                    .background(Color.wash, in: Capsule())
+                            // Tap to open it in Quick Look.
+                            OpenableFile(path: f.url, name: f.filename) { loading in
+                                if f.mediaType.hasPrefix("image/") {
+                                    AuthedImage(path: f.url)
+                                        .frame(width: 120, height: 120)
+                                        .clipShape(.rect(cornerRadius: 16, style: .continuous))
+                                        .opacity(loading ? 0.6 : 1)
+                                } else {
+                                    Label(f.filename, systemImage: "doc")
+                                        .font(.footnote)
+                                        .foregroundStyle(.primary)
+                                        .lineLimit(1)
+                                        .padding(.horizontal, 12)
+                                        .frame(height: 36)
+                                        .background(Color.wash, in: Capsule())
+                                        .opacity(loading ? 0.6 : 1)
+                                }
                             }
                         }
                     }

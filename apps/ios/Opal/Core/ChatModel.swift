@@ -55,6 +55,14 @@ final class ChatModel {
     private(set) var loaded = false
     private var started: Bool
     private var task: Task<Void, Never>?
+    /// The reply was cut off (the app went away, the connection dropped) while the server kept
+    /// going: load the chat again and pick the reply up when we can.
+    private var needsCatchUp = false
+    private var catchingUp = false
+    /// The last message sent never reached the server (offline): Try again sends it again.
+    private var undelivered: [String: JSONValue]?
+    /// When the app went to the background, to tell a stream that may have died in its sleep.
+    private var awayAt: Date?
     /// Tool input as it streams in, by tool call, so a half-written message can be shown.
     private var inputText: [String: String] = [:]
     private let session: SessionStore
@@ -97,29 +105,126 @@ final class ChatModel {
 
     // MARK: Loading
 
+    private struct ConversationResponse: Decodable {
+        struct Conv: Decodable { let title: String; let mode: String }
+        struct Msg: Decodable { let id: String; let role: String; let parts: [JSONValue]; let metadata: JSONValue? }
+        let conversation: Conv
+        let messages: [Msg]
+    }
+
+    private var path: String { "/api/conversations/\(id)" }
+
+    /// The chat as it was last time first (kept on the phone, so it shows at once and offline),
+    /// then the server's copy, then any reply still running there.
     func load() async {
         guard started, !loaded else { return }
-        struct Res: Decodable {
-            struct Conv: Decodable { let title: String; let mode: String }
-            struct Msg: Decodable { let id: String; let role: String; let parts: [JSONValue]; let metadata: JSONValue? }
-            let conversation: Conv
-            let messages: [Msg]
+        if let cached = session.api.cached(path, as: ConversationResponse.self) {
+            show(cached)
+            loaded = true
         }
         do {
-            let res = try await session.api.send("/api/conversations/\(id)", as: Res.self)
-            title = res.conversation.title
-            studyMode = res.conversation.mode == "study"
-            messages = res.messages.map { m in
-                ChatMessage(id: m.id, role: m.role, parts: m.parts.enumerated().compactMap { Part.from($1, index: $0) }, metadata: MessageMetadata(m.metadata))
-            }
+            let res = try await session.api.send(path, as: ConversationResponse.self, cache: true)
+            if !busy { show(res) }
             loaded = true
             // A reply may still be running on the server (the chat was left while it worked).
             if !busy { resume() }
         } catch let e as APIError where e.status == 401 {
             session.handleUnauthorized(e)
         } catch {
-            status = .failed(error.localizedDescription)
+            if Connectivity.isNetwork(error) {
+                // Offline: the kept copy stays on screen; catch up when the connection is back.
+                needsCatchUp = true
+                if !loaded { status = .failed(Connectivity.describe(error)) }
+            } else {
+                status = .failed(Connectivity.describe(error))
+            }
         }
+    }
+
+    private func show(_ res: ConversationResponse) {
+        title = res.conversation.title
+        studyMode = res.conversation.mode == "study"
+        messages = res.messages.map { m in
+            ChatMessage(id: m.id, role: m.role, parts: m.parts.enumerated().compactMap { Part.from($1, index: $0) }, metadata: MessageMetadata(m.metadata))
+        }
+    }
+
+    // MARK: Catching up
+
+    /// Loads the chat again and reconnects to a reply still running on the server. For a reply
+    /// cut off by the app going away or the connection dropping: the server finished it (or is
+    /// still on it) without us.
+    func catchUp() async {
+        guard started, needsCatchUp, !catchingUp else { return }
+        catchingUp = true
+        defer { catchingUp = false }
+        do {
+            let res = try await session.api.send(path, as: ConversationResponse.self, cache: true)
+            needsCatchUp = false
+            // A message that never left stays on screen, with its Try again.
+            guard !busy, undelivered == nil else { return }
+            show(res)
+            loaded = true
+            status = .idle
+            resume()
+        } catch let e as APIError where e.status == 401 {
+            session.handleUnauthorized(e)
+        } catch {
+            if Connectivity.isNetwork(error) {
+                status = .failed(Connectivity.offlineReply)
+            } else {
+                needsCatchUp = false
+                status = .failed(Connectivity.describe(error))
+            }
+        }
+    }
+
+    /// The app went to the background.
+    func appWentAway() {
+        awayAt = .now
+    }
+
+    /// The app is back. A stream left running while it slept may be dead without knowing it:
+    /// after more than a few seconds away, start again from the server's copy.
+    func appCameBack() {
+        let away = awayAt.map { Date.now.timeIntervalSince($0) } ?? 0
+        awayAt = nil
+        if busy && away > 5 {
+            task?.cancel()
+            task = nil
+            status = .idle
+            dropEmptyPending()
+            needsCatchUp = true
+        }
+        if needsCatchUp { Task { await catchUp() } }
+    }
+
+    /// The connection is back.
+    func connectionCameBack() {
+        if needsCatchUp { Task { await catchUp() } }
+    }
+
+    /// Try again after a failure: catch up, send the message that never left, or answer again.
+    func retry() {
+        if let body = undelivered {
+            undelivered = nil
+            needsCatchUp = false
+            stream(post: body)
+        } else if needsCatchUp {
+            Task { await catchUp() }
+        } else {
+            regenerate()
+        }
+    }
+
+    /// What went wrong, for the error under the chat.
+    var failure: String? {
+        if case .failed(let message) = status { return message }
+        return nil
+    }
+
+    private func dropEmptyPending() {
+        if messages.last?.id == "pending", messages.last?.parts.isEmpty == true { messages.removeLast() }
     }
 
     // MARK: Sending
@@ -144,6 +249,8 @@ final class ChatModel {
         // No animation here: the new bubble flies in from the composer on its own (UserBubble).
         messages.append(ChatMessage(id: msgId, role: "user", parts: shown))
         withAnimation(Motion.morph) { attachments = [] }
+        // You moved on from a message that never left.
+        undelivered = nil
         var body = baseBody()
         body["message"] = .object(["id": .string(msgId), "role": .string("user"), "parts": .array(sent)])
         started = true
@@ -219,9 +326,12 @@ final class ChatModel {
         req.timeoutInterval = 900
         if !resuming { status = .sending }
         task?.cancel()
+        let posted = resuming ? nil : (try? JSONDecoder().decode(JSONValue.self, from: request.httpBody ?? Data()))
         task = Task {
+            var answered = false
             do {
                 let (bytes, response) = try await URLSession.shared.bytes(for: req)
+                answered = true
                 let code = (response as? HTTPURLResponse)?.statusCode ?? 200
                 if resuming && code == 204 { return }
                 if !(200..<300).contains(code) {
@@ -251,8 +361,28 @@ final class ChatModel {
                 status = .idle
                 session.handleUnauthorized(e)
             } catch {
-                if resuming { status = .idle; return }
-                status = .failed(error.localizedDescription)
+                guard Connectivity.isNetwork(error) else {
+                    if resuming { status = .idle; return }
+                    status = .failed(Connectivity.describe(error))
+                    return
+                }
+                dropEmptyPending()
+                if !answered && !resuming, case .object(let body)? = posted {
+                    // Never reached the server (offline): keep the message and offer to send it again.
+                    undelivered = body
+                    status = .failed(Connectivity.describe(error))
+                    return
+                }
+                // Cut off mid-reply (the app went away, the connection dropped). The server keeps
+                // going: catch up with it instead of calling it a failure.
+                needsCatchUp = true
+                status = .idle
+                try? await Task.sleep(for: .seconds(1))
+                if Connectivity.shared.online {
+                    await catchUp()
+                } else {
+                    status = .failed(Connectivity.offlineReply)
+                }
             }
         }
     }

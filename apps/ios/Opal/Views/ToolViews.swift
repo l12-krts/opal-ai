@@ -22,6 +22,7 @@ struct ToolPartView: View {
             case "render_ui": GenUIView(call: call, model: model)
             case "write_by_hand": HandwritingArtifactView(call: call)
             case "remember", "forget": MemoryRow(call: call, forgot: call.name == "forget")
+            case "share_file": SharedFileCard(call: call, streaming: streaming)
             default: ToolRow(call: call, streaming: streaming, nerd: session.nerdMode)
             }
         }

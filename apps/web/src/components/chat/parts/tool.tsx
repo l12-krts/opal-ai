@@ -30,6 +30,7 @@ import { GenUI } from "./genui";
 import { QuizArtifact } from "./quiz";
 import { FlashcardsArtifact } from "./flashcards";
 import { HandwritingArtifact } from "./handwriting-artifact";
+import { SharedFile } from "./shared-file";
 
 type AnyToolPart = ToolUIPart & { input?: any; output?: any; errorText?: string; approval?: { id: string; approved?: boolean; reason?: string } };
 
@@ -37,7 +38,7 @@ type AnyToolPart = ToolUIPart & { input?: any; output?: any; errorText?: string;
 export const HIDDEN = new Set(["list_agents", "list_secrets"]);
 
 // Tools that render as their own artifact or card rather than as a step in the work log.
-export const CARD_TOOLS = new Set(["request_secret", "ask_user", "render_ui", "create_quiz", "create_flashcards", "write_by_hand", "remember", "forget"]);
+export const CARD_TOOLS = new Set(["request_secret", "ask_user", "render_ui", "create_quiz", "create_flashcards", "write_by_hand", "remember", "forget", "share_file"]);
 
 export function ToolPart({ part, name, streaming }: { part: AnyToolPart; name: string; streaming: boolean }) {
   if (part.state === "approval-requested") return <ApprovalCard part={part} name={name} />;
@@ -58,6 +59,8 @@ export function ToolPart({ part, name, streaming }: { part: AnyToolPart; name: s
     case "remember":
     case "forget":
       return <MemoryRow part={part} forgot={name === "forget"} />;
+    case "share_file":
+      return <SharedFile part={part} streaming={streaming} />;
   }
 
   if (HIDDEN.has(name)) {
@@ -85,6 +88,8 @@ export function describe(name: string, input: any): { icon: typeof IconTool; lab
     case "write_file":
     case "list_files":
       return { icon: IconFile, label: name === "write_file" ? `Wrote ${input?.path ?? "file"}` : name === "read_file" ? `Read ${input?.path ?? "file"}` : "Listed files" };
+    case "share_file":
+      return { icon: IconFile, label: `Attached ${String(input?.path ?? "a file").split("/").pop()}` };
     case "read_webpage":
       return { icon: IconWorld, label: `Read ${host(input?.url)}` };
     case "use_skill":

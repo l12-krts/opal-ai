@@ -275,7 +275,7 @@ export const attachment = pgTable(
     conversationId: text("conversation_id").references(() => conversation.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     mediaType: text("media_type").notNull(),
-    kind: text("kind", { enum: ["image", "pdf", "text"] }).notNull(),
+    kind: text("kind", { enum: ["image", "pdf", "text", "file"] }).notNull(),
     size: integer("size").notNull(),
     data: bytea("data").notNull(),
     text: text("text"),

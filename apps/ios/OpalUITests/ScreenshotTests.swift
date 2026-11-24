@@ -112,7 +112,8 @@ final class ScreenshotTests: XCTestCase {
             settle()
             again.buttons["Add files and more"].firstMatch.tap()
             settle(1)
-            let study = again.buttons["Study"].firstMatch
+            // The row's label includes its subtitle ("Study, Your books…").
+            let study = again.buttons.matching(NSPredicate(format: "label BEGINSWITH 'Study'")).firstMatch
             if study.waitForExistence(timeout: 3) {
                 study.tap()
                 settle(1)
@@ -161,6 +162,59 @@ final class ScreenshotTests: XCTestCase {
             XCTAssertFalse(fresh.keyboards.firstMatch.exists, "The keyboard stayed up after tapping outside it")
         }
         fresh.terminate()
+    }
+
+    /// Airplane mode: the chat shows what the phone kept from last time, a banner says you're
+    /// offline, and a message that can't go out says so (with Try again).
+    func testOffline() {
+        // Once online, so the phone keeps a copy of the chat and the list.
+        let online = launch(["-demoScreen", "chat"])
+        settle()
+        online.terminate()
+
+        let app = launch(["-demoScreen", "chat", "-demoOffline"])
+        settle()
+        snap(app, "offline/chat")
+        let banner = app.descendants(matching: .any).matching(NSPredicate(format: "label == %@", "You're offline")).firstMatch
+        XCTAssertTrue(banner.waitForExistence(timeout: 3), "No offline banner")
+        let field = app.descendants(matching: .any)["composer"].firstMatch
+        if field.waitForExistence(timeout: 5) {
+            field.tap()
+            field.typeText("Are you there?")
+            app.buttons["Send"].firstMatch.tap()
+            settle(1.5)
+            app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.2)).tap()
+            settle(1)
+            snap(app, "offline/sent")
+            // The error row reads as one element ("You're offline., Try again").
+            let error = app.descendants(matching: .any).matching(NSPredicate(format: "label CONTAINS %@", "offline.")).firstMatch
+            XCTAssertTrue(error.waitForExistence(timeout: 3), "Sending offline said nothing")
+        }
+        app.terminate()
+
+        // A new chat offline.
+        let fresh = launch(["-demoScreen", "new", "-demoOffline"], theme: "dark")
+        settle()
+        snap(fresh, "offline/new")
+        fresh.terminate()
+    }
+
+    /// A file an agent attached from its computer: the card in its answer, then Quick Look.
+    func testSharedFile() {
+        for theme in ["light", "dark"] {
+            let app = launch(["-demoScreen", "agent"], theme: theme)
+            settle()
+            snap(app, "files/\(theme)-card")
+            let card = app.buttons.matching(NSPredicate(format: "label BEGINSWITH %@", "Cafés")).firstMatch
+            if card.waitForExistence(timeout: 5) {
+                card.tap()
+                settle(2.5)
+                snap(app, "files/\(theme)-quicklook")
+            } else {
+                XCTFail("No card for the shared file")
+            }
+            app.terminate()
+        }
     }
 
     /// The sidebar sliding out, a few frames in.

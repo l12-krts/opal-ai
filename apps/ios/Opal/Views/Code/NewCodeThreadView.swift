@@ -59,8 +59,6 @@ struct NewCodeThreadView: View {
             .animation(Motion.morph, value: target)
         }
         .scrollDismissesKeyboard(.interactively)
-        // A tap outside the keyboard puts it away (the rows still work).
-        .simultaneousGesture(TapGesture().onEnded { if focused { focused = false } })
         .overlay { MenuScrim(open: $menuOpen) }
         .bottomBar {
             Composer(

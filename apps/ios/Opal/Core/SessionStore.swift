@@ -124,40 +124,49 @@ final class SessionStore: NSObject {
         }
     }
 
+    private struct UserResponse: Decodable {
+        struct User: Decodable { let name: String; let email: String? }
+        struct S: Decodable {
+            let model: String?
+            let nerdMode: Bool?
+            let theme: String?
+            let accent: String?
+            let memoryEnabled: Bool?
+        }
+        let user: User
+        let settings: S?
+        let models: [ModelInfo]?
+        let defaultModel: String?
+        let status: ServiceStatus?
+    }
+
+    /// Your name, models and settings: the copy kept from last time first (so the app is
+    /// filled in straight away, and offline), then the server's.
     func loadUser() async {
-        struct Res: Decodable {
-            struct User: Decodable { let name: String; let email: String? }
-            struct S: Decodable {
-                let model: String?
-                let nerdMode: Bool?
-                let theme: String?
-                let accent: String?
-                let memoryEnabled: Bool?
-            }
-            let user: User
-            let settings: S?
-            let models: [ModelInfo]?
-            let defaultModel: String?
-            let status: ServiceStatus?
+        if userName == nil, let cached = api.cached("/api/settings", as: UserResponse.self) {
+            apply(cached)
         }
         do {
-            let res = try await api.send("/api/settings", as: Res.self)
-            userName = res.user.name
-            email = res.user.email
-            models = res.models ?? []
-            chosenModelId = res.settings?.model
-            serverDefaultModelId = res.defaultModel
-            defaultModelId = res.settings?.model ?? res.defaultModel
-            status = res.status
-            if let s = res.settings {
-                if let v = s.nerdMode { nerdMode = v; UserDefaults.standard.set(v, forKey: "opal-nerd") }
-                if let v = s.theme.flatMap(ThemePreference.init(rawValue:)) { theme = v; UserDefaults.standard.set(v.rawValue, forKey: "opal-theme") }
-                if let v = s.accent.flatMap(AccentID.init(rawValue:)) { accent = v; UserDefaults.standard.set(v.rawValue, forKey: "opal-accent") }
-                if let v = s.memoryEnabled { memoryEnabled = v }
-            }
+            apply(try await api.send("/api/settings", as: UserResponse.self, cache: true))
         } catch let e as APIError where e.status == 401 {
             handleUnauthorized(e)
         } catch {}
+    }
+
+    private func apply(_ res: UserResponse) {
+        userName = res.user.name
+        email = res.user.email
+        models = res.models ?? []
+        chosenModelId = res.settings?.model
+        serverDefaultModelId = res.defaultModel
+        defaultModelId = res.settings?.model ?? res.defaultModel
+        status = res.status
+        if let s = res.settings {
+            if let v = s.nerdMode { nerdMode = v; UserDefaults.standard.set(v, forKey: "opal-nerd") }
+            if let v = s.theme.flatMap(ThemePreference.init(rawValue:)) { theme = v; UserDefaults.standard.set(v.rawValue, forKey: "opal-theme") }
+            if let v = s.accent.flatMap(AccentID.init(rawValue:)) { accent = v; UserDefaults.standard.set(v.rawValue, forKey: "opal-accent") }
+            if let v = s.memoryEnabled { memoryEnabled = v }
+        }
     }
 
     // MARK: Settings
@@ -213,6 +222,8 @@ final class SessionStore: NSObject {
         Task { _ = try? await api.sendRaw("/api/auth/sign-out", json: [String: String]()) }
         sessionToken = nil
         Keychain.set(nil, for: "session")
+        // Chats and settings kept on the phone go with the account.
+        ResponseCache.clear()
         phase = .signedOut
     }
 }

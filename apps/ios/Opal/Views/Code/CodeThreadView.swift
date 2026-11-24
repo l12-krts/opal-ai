@@ -60,8 +60,6 @@ struct CodeThreadView: View {
                 .animation(Motion.morph, value: working)
             }
             .scrollDismissesKeyboard(.interactively)
-            // A tap on the thread puts the keyboard away (buttons in it still work).
-            .simultaneousGesture(TapGesture().onEnded { if focused { focused = false } })
             .startsAtBottom()
             .onAppear { scroller = proxy }
             .onChange(of: items.count) { _, _ in
@@ -114,7 +112,11 @@ struct CodeThreadView: View {
                     // The keyboard pushed the composer up while the latest output was in view:
                     // keep it there.
                     if old < .greatestFiniteMagnitude, top < old - 1, end.top <= old + 80 {
-                        withAnimation(.easeOut(duration: 0.25)) { scroller?.scrollTo("bottom", anchor: .bottom) }
+                        // A moment later, once the scroll view has taken the keyboard's room.
+                        Task { @MainActor in
+                            try? await Task.sleep(for: .milliseconds(40))
+                            withAnimation(.easeOut(duration: 0.25)) { scroller?.scrollTo("bottom", anchor: .bottom) }
+                        }
                     }
                     updateAtEnd()
                 }

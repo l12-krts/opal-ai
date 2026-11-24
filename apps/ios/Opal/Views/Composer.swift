@@ -60,7 +60,10 @@ struct Composer: View {
         }
         .background(alignment: .topLeading) { measurer }
         .opalGlass(in: RoundedRectangle(cornerRadius: 26, style: .continuous))
-        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { box = $0 }
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: {
+            box = $0
+            Flight.composer = $0
+        }
         // Where the menu attaches; resolved during layout, so it's never out of date.
         .anchorPreference(key: ComposerAnchor.self, value: .bounds) { $0 }
         .animation(Motion.morph, value: expanded)

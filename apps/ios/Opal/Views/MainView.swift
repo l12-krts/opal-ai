@@ -78,6 +78,8 @@ final class Shell {
     @ObservationIgnored private var recent: [String] = []
     /// Set-up for a chat that hasn't been opened yet: study mode, a first message to send.
     @ObservationIgnored private var seeds: [String: (study: Bool, prompt: String?)] = [:]
+    /// When the app went to the background.
+    @ObservationIgnored private var awayAt: Date?
 
     init() {
         if let start = Demo.start {
@@ -152,11 +154,17 @@ final class Shell {
         withAnimation(Motion.drawer) { sidebarOpen = open }
     }
 
+    /// The chat list as it was last time first (kept on the phone), then the server's.
     func loadChats(_ session: SessionStore) async {
         struct Res: Decodable { let conversations: [Conversation] }
+        let path = "/api/conversations"
+        if conversations.isEmpty, let kept = session.api.cached(path, as: Res.self)?.conversations {
+            conversations = kept
+            loadingChats = false
+        }
         defer { loadingChats = false }
         do {
-            let list = try await session.api.send("/api/conversations", as: Res.self).conversations
+            let list = try await session.api.send(path, as: Res.self, cache: true).conversations
             withAnimation(Motion.morph) { conversations = list }
         } catch let e as APIError where e.status == 401 {
             session.handleUnauthorized(e)
@@ -165,10 +173,43 @@ final class Shell {
 
     func loadAgents(_ session: SessionStore) async {
         struct Res: Decodable { let agents: [Agent] }
+        let path = "/api/agents"
+        if !agentsLoaded, let kept = session.api.cached(path, as: Res.self)?.agents {
+            agents = kept.filter { $0.ephemeral != true }
+            agentsLoaded = true
+        }
         defer { agentsLoaded = true }
-        if let list = try? await session.api.send("/api/agents", as: Res.self).agents {
+        if let list = try? await session.api.send(path, as: Res.self, cache: true).agents {
             withAnimation(Motion.morph) { agents = list.filter { $0.ephemeral != true } }
             for m in models.values { if let id = m.agentId { m.agent = agents.first { $0.id == id } ?? m.agent } }
+        }
+    }
+
+    /// The app went to the background, or came back from it. Back: chats whose reply was cut off
+    /// while the phone slept catch up with the server (which kept going), and the lists reload.
+    func appPhase(active: Bool, _ session: SessionStore) {
+        guard active else {
+            awayAt = .now
+            for m in models.values { m.appWentAway() }
+            return
+        }
+        guard awayAt != nil else { return }
+        awayAt = nil
+        for m in models.values { m.appCameBack() }
+        Task {
+            async let chats: Void = loadChats(session)
+            async let agents: Void = loadAgents(session)
+            _ = await (chats, agents)
+        }
+    }
+
+    /// The connection is back: catch up wherever a reply was cut off.
+    func connectionCameBack(_ session: SessionStore) {
+        for m in models.values { m.connectionCameBack() }
+        Task {
+            async let chats: Void = loadChats(session)
+            async let agents: Void = loadAgents(session)
+            _ = await (chats, agents)
         }
     }
 
@@ -211,6 +252,7 @@ final class Shell {
 struct MainView: View {
     @Environment(SessionStore.self) private var session
     @Environment(\.horizontalSizeClass) private var hSize
+    @Environment(\.scenePhase) private var scenePhase
     @State private var shell = Shell()
     @State private var code = CodeStore()
 
@@ -244,6 +286,21 @@ struct MainView: View {
             _ = await (chats, user, agents)
         }
         .task { await code.run(session) }
+        .onChange(of: scenePhase) { _, phase in
+            switch phase {
+            case .background:
+                shell.appPhase(active: false, session)
+            case .active:
+                shell.appPhase(active: true, session)
+                Task { await code.load() }
+            default:
+                break
+            }
+        }
+        .onChange(of: Connectivity.shared.reconnects) {
+            shell.connectionCameBack(session)
+            Task { await code.load() }
+        }
     }
 
     private var content: some View {
@@ -256,6 +313,12 @@ struct MainView: View {
                     case .settings(let page): SettingsPageView(page: page)
                     }
                 }
+        }
+        // Under the header, while there's no connection.
+        .overlay(alignment: .top) {
+            OfflineBanner()
+                .padding(.top, 58)
+                .allowsHitTesting(false)
         }
     }
 

@@ -6,7 +6,7 @@ import UIKit
 // rows, and cards (quizzes, secrets, generated UI, handwriting) stand on their own.
 
 /// Tools that show as their own card instead of a step in the work log.
-let cardTools: Set<String> = ["request_secret", "ask_user", "render_ui", "create_quiz", "create_flashcards", "write_by_hand", "remember", "forget"]
+let cardTools: Set<String> = ["request_secret", "ask_user", "render_ui", "create_quiz", "create_flashcards", "write_by_hand", "remember", "forget", "share_file"]
 /// Tools that only show when they fail.
 let hiddenTools: Set<String> = ["list_agents", "list_secrets"]
 /// Tools that message an agent.
@@ -120,8 +120,8 @@ struct AssistantMessageView: View {
 
             if errored {
                 HStack(spacing: 6) {
-                    Text("Opal could not answer.").foregroundStyle(Color.danger)
-                    Button("Try again") { model.regenerate() }
+                    Text(model.failure ?? "Opal could not answer.").foregroundStyle(Color.danger)
+                    Button("Try again") { model.retry() }
                         .underline()
                         .foregroundStyle(Color.danger)
                         .buttonStyle(PressableStyle())
@@ -189,14 +189,19 @@ private struct MessageActions: View {
 /// sweeping across it (the web's PendingAssistant). With `error`, the way to try again.
 struct ThinkingRow: View {
     var error = false
+    /// What went wrong; "Opal could not answer." when not given.
+    var message: String?
     var onRetry: (() -> Void)?
 
     var body: some View {
         HStack(spacing: 10) {
             if error {
                 OpalMark(size: 16).foregroundStyle(.secondary)
-                HStack(spacing: 4) {
-                    Text("Opal could not answer.").foregroundStyle(Color.danger)
+                // Longer reasons ("You're offline. Opal keeps working…") wrap, with Try again under them.
+                VStack(alignment: .leading, spacing: 4) {
+                    Text(message ?? "Opal could not answer.")
+                        .foregroundStyle(Color.danger)
+                        .fixedSize(horizontal: false, vertical: true)
                     if let onRetry {
                         Button("Try again", action: onRetry).underline().foregroundStyle(Color.danger).buttonStyle(PressableStyle())
                     }
@@ -207,7 +212,7 @@ struct ThinkingRow: View {
             }
         }
         .font(.system(size: 15))
-        .frame(height: 24)
+        .frame(minHeight: 24)
         .accessibilityElement(children: .combine)
     }
 }
@@ -378,6 +383,7 @@ func describeTool(_ name: String, _ input: JSONValue?) -> (icon: String, label: 
     case "read_file": return ("doc", "Read \(input?["path"]?.string ?? "file")")
     case "write_file": return ("doc", "Wrote \(input?["path"]?.string ?? "file")")
     case "list_files": return ("doc", "Listed files")
+    case "share_file": return ("paperclip", "Attached \((input?["path"]?.string ?? "a file").split(separator: "/").last.map(String.init) ?? "a file")")
     case "read_webpage": return ("globe", "Read \(host(input?["url"]?.string))")
     case "use_skill": return ("wand.and.stars", "Used the \(input?["name"]?.string ?? "") skill")
     case "remember": return ("brain", "Saved to memory")
