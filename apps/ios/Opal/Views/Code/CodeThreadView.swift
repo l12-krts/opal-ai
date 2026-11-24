@@ -16,9 +16,10 @@ struct CodeThreadView: View {
     /// Whether the end of the thread is on screen. New output only scrolls the thread while it
     /// is, so reading further up is never yanked away.
     @State private var atEnd = true
-    @State private var visibleBottom: CGFloat = 0
-    /// Where the end is on screen, every scroll frame; not observed, so writing it doesn't redraw.
+    /// Where the end and the composer are on screen; not observed, so writing it doesn't redraw.
     @State private var end = ScrollMark()
+    /// The thread's scroll proxy, for the composer (which sits outside the scroll view).
+    @State private var scroller: ScrollViewProxy?
 
     private var thread: CodeThread? { code.thread(threadId) }
     private var items: [CodeItem] { code.items[threadId] ?? [] }
@@ -47,48 +48,22 @@ struct CodeThreadView: View {
                         Label(sendError, systemImage: "exclamationmark.circle").font(.footnote).foregroundStyle(Color.danger)
                     }
                     Color.clear.frame(height: 1).id("bottom")
-                        .onGeometryChange(for: CGFloat.self) { $0.frame(in: .named("codeThread")).minY } action: { y in
-                            // iOS 18: where the end is in the content, against the visible area.
-                            guard VisibleArea.tracked else { return }
-                            end.top = y
-                            let next = y <= end.bottom + 80
-                            if next != atEnd { atEnd = next }
-                        }
+                        // The end on screen, against where the composer starts (both in window
+                        // coordinates, so no insets to get wrong).
                         .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: { y in
-                            // iOS 17: in window coordinates.
-                            guard !VisibleArea.tracked else { return }
                             end.top = y
-                            let next = y <= visibleBottom + 80
-                            if next != atEnd { atEnd = next }
+                            updateAtEnd()
                         }
                 }
                 .padding(.horizontal, 18)
                 .padding(.vertical, 12)
-                .coordinateSpace(.named("codeThread"))
                 .animation(Motion.morph, value: working)
             }
-            .onVisibleAreaChange { old, new in
-                end.bottom = new.bottom
-                // The keyboard came up while the latest output was in view: keep it there.
-                if new.height < old.height - 1, end.top <= old.bottom + 80 {
-                    withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo("bottom", anchor: .bottom) }
-                }
-                let next = end.top <= new.bottom + 80
-                if next != atEnd { atEnd = next }
-            }
-            .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).maxY - $0.safeAreaInsets.bottom } action: { bottom in
-                guard !VisibleArea.tracked else { return }
-                let old = visibleBottom
-                visibleBottom = bottom
-                // The keyboard came up while the latest output was in view: keep it there.
-                if old > 0, bottom < old - 1, end.top <= old + 80 {
-                    withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo("bottom", anchor: .bottom) }
-                }
-                let next = end.top <= bottom + 80
-                if next != atEnd { atEnd = next }
-            }
             .scrollDismissesKeyboard(.interactively)
+            // A tap on the thread puts the keyboard away (buttons in it still work).
+            .simultaneousGesture(TapGesture().onEnded { if focused { focused = false } })
             .startsAtBottom()
+            .onAppear { scroller = proxy }
             .onChange(of: items.count) { _, _ in
                 guard atEnd else { return }
                 withAnimation(Motion.morph) { proxy.scrollTo("bottom", anchor: .bottom) }
@@ -132,14 +107,25 @@ struct CodeThreadView: View {
                     focus: $focused,
                     onSend: send,
                     onStop: { Task { await code.interrupt(threadId) } }
-                ) {
-                    ModeMenu(mode: thread?.mode ?? "auto") { mode in
-                        Task { await code.patch(threadId, ["mode": .string(mode)]) }
-                        withAnimation(Motion.dismiss) { menuOpen = false }
+                )
+                .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: { top in
+                    let old = end.bottom
+                    end.bottom = top
+                    // The keyboard pushed the composer up while the latest output was in view:
+                    // keep it there.
+                    if old < .greatestFiniteMagnitude, top < old - 1, end.top <= old + 80 {
+                        withAnimation(.easeOut(duration: 0.25)) { scroller?.scrollTo("bottom", anchor: .bottom) }
                     }
+                    updateAtEnd()
                 }
             }
             .animation(Motion.dismiss, value: suggestions?.isEmpty ?? true)
+        }
+        .composerMenu(open: menuOpen) {
+            ModeMenu(mode: thread?.mode ?? "auto") { mode in
+                Task { await code.patch(threadId, ["mode": .string(mode)]) }
+                withAnimation(Motion.dismiss) { menuOpen = false }
+            }
         }
         .background(Color.canvas.ignoresSafeArea())
         .navigationBarTitleDisplayMode(.inline)
@@ -202,6 +188,11 @@ struct CodeThreadView: View {
             Image(systemName: "ellipsis")
         }
         .accessibilityLabel("Thread actions")
+    }
+
+    private func updateAtEnd() {
+        let next = end.top <= end.bottom + 80
+        if next != atEnd { atEnd = next }
     }
 
     private func send() {

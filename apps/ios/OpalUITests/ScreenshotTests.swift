@@ -106,15 +106,21 @@ final class ScreenshotTests: XCTestCase {
                 snap(app, "menu/\(theme)-camera")
             }
             app.terminate()
+            guard theme == "light" else { continue }
+            // A row tap must land: Study turns on and shows as a chip in the composer.
+            let again = launch(["-demoScreen", "chat"], theme: theme)
+            settle()
+            again.buttons["Add files and more"].firstMatch.tap()
+            settle(1)
+            let study = again.buttons["Study"].firstMatch
+            if study.waitForExistence(timeout: 3) {
+                study.tap()
+                settle(1)
+                snap(again, "menu/study-picked")
+                XCTAssertTrue(again.buttons["Turn off Study"].waitForExistence(timeout: 3), "Tapping Study in the + menu did nothing")
+            }
+            again.terminate()
         }
-    }
-
-    /// The same menu already open at launch (-demoMenu). Kept apart: it has crashed before.
-    func testMenuAtLaunch() {
-        let app = launch(["-demoScreen", "new", "-demoMenu"])
-        settle()
-        snap(app, "menu/at-launch")
-        app.terminate()
     }
 
     /// Sending: the message flies up from the composer, then the reply streams in under it.
@@ -148,6 +154,11 @@ final class ScreenshotTests: XCTestCase {
             f2.tap()
             settle(1)
             snap(fresh, "send/new-focused")
+            // A tap above the keyboard (on the greeting) puts it away.
+            fresh.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.3)).tap()
+            settle(1)
+            snap(fresh, "send/new-tapped-away")
+            XCTAssertFalse(fresh.keyboards.firstMatch.exists, "The keyboard stayed up after tapping outside it")
         }
         fresh.terminate()
     }

@@ -36,7 +36,7 @@ struct ChatScreen: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var draft = ""
     @FocusState private var focused: Bool
-    @State private var menuOpen = Demo.flag("-demoMenu")
+    @State private var menuOpen = false
     @State private var menuPage: MenuPage = .main
     @State private var pickingPhotos = false
     @State private var photoItems: [PhotosPickerItem] = []
@@ -45,12 +45,13 @@ struct ChatScreen: View {
     @State private var welcomeShown = false
     /// The scroll view's visible height, without the keyboard (its largest so far).
     @State private var viewport: CGFloat = 0
-    @State private var visibleBottom: CGFloat = 0
     @State private var endY: CGFloat = 0
     @State private var endInView = true
     /// Where the end of the thread is on screen, updated every scroll frame. A plain object, so
     /// writing it doesn't redraw the chat.
     @State private var end = ScrollMark()
+    /// The thread's scroll proxy, for the composer (which sits outside the scroll view).
+    @State private var scroller: ScrollViewProxy?
     /// The message sent from this screen: it's scrolled to the top and the reply grows under it.
     @State private var pinned: String?
     @State private var pinnedTop: CGFloat?
@@ -59,7 +60,6 @@ struct ChatScreen: View {
     @State private var skills: [SlashSkill] = []
 
     private enum MenuPage { case main, models, camera }
-    private struct Visible: Equatable { var height: CGFloat; var bottom: CGFloat }
 
     private static let landing = Animation.timingCurve(0.23, 1, 0.32, 1, duration: 0.42)
 
@@ -73,33 +73,21 @@ struct ChatScreen: View {
                 }
             }
             .scrollDismissesKeyboard(.interactively)
+            // The greeting (or "Message Scout") stays put: there's nothing to scroll to yet.
+            .scrollDisabled(showsWelcome)
+            // A tap outside the keyboard puts it away (buttons in the thread still work).
+            .simultaneousGesture(TapGesture().onEnded { if focused { focused = false } })
             .startsAtBottom()
-            .onGeometryChange(for: Visible.self) { g in
-                // Everything in window coordinates, like the end marker below.
-                Visible(height: g.size.height - g.safeAreaInsets.top - g.safeAreaInsets.bottom, bottom: g.frame(in: .global).maxY - g.safeAreaInsets.bottom)
-            } action: { v in
-                viewport = max(viewport, v.height)
-                guard !VisibleArea.tracked else { return }
-                // iOS 17: measured in window coordinates.
-                let old = visibleBottom
-                visibleBottom = v.bottom
-                if old > 0, v.bottom < old - 1, end.top <= old + 60, !showsWelcome {
-                    withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo("end", anchor: .bottom) }
-                }
-                let inView = end.top <= v.bottom + 60
-                if inView != endInView { endInView = inView }
-            }
-            .onVisibleAreaChange { old, new in
-                end.bottom = new.bottom
-                // The keyboard came up while the latest message was in view: keep it in view.
-                if new.height < old.height - 1, endY <= old.bottom + 60, !showsWelcome {
-                    withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo("end", anchor: .bottom) }
-                }
-                let inView = endY <= new.bottom + 60
-                if inView != endInView { endInView = inView }
+            .onGeometryChange(for: CGFloat.self) { g in
+                g.size.height - g.safeAreaInsets.top - g.safeAreaInsets.bottom
+            } action: { h in
+                viewport = max(viewport, h)
             }
             .overlay(alignment: .bottom) { jumpButton(proxy) }
-            .onAppear { if model.loaded { proxy.scrollTo("end", anchor: .bottom) } }
+            .onAppear {
+                scroller = proxy
+                if model.loaded { proxy.scrollTo("end", anchor: .bottom) }
+            }
             .onChange(of: model.loaded) { _, loaded in
                 if loaded { proxy.scrollTo("end", anchor: .bottom) }
             }
@@ -111,6 +99,7 @@ struct ChatScreen: View {
         .overlay { MenuScrim(open: Binding(get: { menuOpen }, set: { if !$0 { closeMenu() } })) }
         .topBar { header }
         .bottomBar { composerStack }
+        .composerMenu(open: menuOpen, expanded: menuPage == .camera) { plusMenu }
         .background(Color.canvas.ignoresSafeArea())
         .toolbar(.hidden, for: .navigationBar)
         .task {
@@ -186,18 +175,12 @@ struct ChatScreen: View {
             }
             Color.clear.frame(height: 1)
                 .id("end")
-                .onGeometryChange(for: CGFloat.self) { $0.frame(in: .named("thread")).minY } action: { y in
-                    endY = y
-                    // The reply grew past the bottom of the screen (or back).
-                    guard VisibleArea.tracked else { return }
-                    let inView = y <= end.bottom + 60
-                    if inView != endInView { endInView = inView }
-                }
+                .onGeometryChange(for: CGFloat.self) { $0.frame(in: .named("thread")).minY } action: { endY = $0 }
+                // Where the end is on screen, against where the composer starts: both real
+                // positions in the window, so no insets to get wrong.
                 .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: { y in
-                    guard !VisibleArea.tracked else { return }
                     end.top = y
-                    let inView = y <= visibleBottom + 60
-                    if inView != endInView { endInView = inView }
+                    updateEndInView()
                 }
             Color.clear.frame(height: spacer)
         }
@@ -339,7 +322,8 @@ struct ChatScreen: View {
     private func suggestion(_ title: String, systemImage: String, index: Int, action: @escaping () -> Void) -> some View {
         Button {
             withAnimation(Motion.morph) { action() }
-            focused = true
+            // After the tap has finished (the screen's tap-to-dismiss sees the same tap).
+            Task { @MainActor in focused = true }
         } label: {
             HStack(spacing: 14) {
                 Image(systemName: systemImage)
@@ -387,8 +371,23 @@ struct ChatScreen: View {
                     .transition(.opacity.combined(with: .offset(y: 8)).combined(with: .scale(scale: 0.98, anchor: .bottom)))
             }
             composer
+                .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: { top in
+                    let old = end.bottom
+                    end.bottom = top
+                    // The keyboard pushed the composer up while the latest message was in view:
+                    // keep it in view.
+                    if old < .greatestFiniteMagnitude, top < old - 1, end.top <= old + 60, !showsWelcome {
+                        withAnimation(.easeOut(duration: 0.25)) { scroller?.scrollTo("end", anchor: .bottom) }
+                    }
+                    updateEndInView()
+                }
         }
         .animation(Motion.dismiss, value: suggestions?.isEmpty ?? true)
+    }
+
+    private func updateEndInView() {
+        let inView = end.top <= end.bottom + 60
+        if inView != endInView { endInView = inView }
     }
 
     private var composer: some View {
@@ -401,13 +400,10 @@ struct ChatScreen: View {
             attachments: model.attachments,
             onRemoveAttachment: { model.removeAttachment($0) },
             menuOpen: $menuOpen,
-            menuExpanded: menuPage == .camera,
             focus: $focused,
             onSend: send,
             onStop: { model.stop() }
-        ) {
-            plusMenu
-        }
+        )
     }
 
     @ViewBuilder private var plusMenu: some View {
@@ -626,8 +622,9 @@ struct ChatScreen: View {
 /// Where something is on screen, updated as it scrolls. A plain object, so writing it from a
 /// geometry callback doesn't redraw the view that holds it.
 final class ScrollMark {
+    /// The end of the content, in window coordinates.
     var top: CGFloat = 0
-    /// The visible part's bottom edge in content coordinates (iOS 18).
+    /// Where the composer starts, in window coordinates (the bottom of what you can read).
     var bottom: CGFloat = .greatestFiniteMagnitude
 }
 
@@ -659,36 +656,6 @@ extension View {
         }
     }
 
-    /// Reports the scroll view's visible area as it scrolls or the keyboard comes and goes, from
-    /// the scroll view itself (iOS 18). Nothing on iOS 17, where the views fall back to measuring
-    /// themselves.
-    @ViewBuilder
-    func onVisibleAreaChange(_ action: @escaping (_ old: VisibleArea, _ new: VisibleArea) -> Void) -> some View {
-        if #available(iOS 18.0, *) {
-            self.onScrollGeometryChange(for: VisibleArea.self) { g in
-                VisibleArea(
-                    bottom: g.contentOffset.y + g.containerSize.height - g.contentInsets.bottom,
-                    height: g.containerSize.height - g.contentInsets.top - g.contentInsets.bottom
-                )
-            } action: { old, new in
-                action(old, new)
-            }
-        } else {
-            self
-        }
-    }
-}
-
-/// What a scroll view shows: the bottom edge of the visible part, in content coordinates (0 is
-/// the top of the content), and how tall that part is (smaller while the keyboard is up).
-struct VisibleArea: Equatable {
-    var bottom: CGFloat
-    var height: CGFloat
-
-    static var tracked: Bool {
-        if #available(iOS 18.0, *) { return true }
-        return false
-    }
 }
 
 // MARK: Suggestions

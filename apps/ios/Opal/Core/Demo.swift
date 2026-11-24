@@ -6,7 +6,6 @@ import Foundation
 ///     -demo -demoScreen code.thread      a pushed screen
 ///     -demo -demoScreen settings.memory  any settings page
 ///     -demo -demoSidebar                 with the sidebar out
-///     -demo -demoMenu                    with the composer's + menu open
 ///     -opal-theme dark                   (UserDefaults) the theme; -opal-accent blue the accent
 enum Demo {
     static let enabled = ProcessInfo.processInfo.arguments.contains("-demo")
