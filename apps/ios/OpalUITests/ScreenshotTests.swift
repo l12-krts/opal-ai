@@ -88,14 +88,18 @@ final class ScreenshotTests: XCTestCase {
         }
     }
 
-    /// The composer's + menu opens above the composer; the camera grows into a panel that stays
-    /// on screen.
-    func testComposerMenu() {
+    /// The composer's + menu, opened by tapping "+" the way you do: it must sit above the
+    /// composer, and the camera panel must stay on screen.
+    func testMenuTapped() {
         for theme in ["light", "dark"] {
-            let app = launch(["-demoScreen", "new", "-demoMenu"], theme: theme)
+            let app = launch(["-demoScreen", "chat"], theme: theme)
             settle()
+            let plus = app.buttons["Add files and more"].firstMatch
+            guard plus.waitForExistence(timeout: 5) else { XCTFail("No + button"); app.terminate(); continue }
+            plus.tap()
+            settle(1)
             snap(app, "menu/\(theme)-open")
-            let camera = app.buttons["Camera"]
+            let camera = app.buttons["Camera"].firstMatch
             if camera.waitForExistence(timeout: 3) {
                 camera.tap()
                 settle(1.2)
@@ -103,15 +107,13 @@ final class ScreenshotTests: XCTestCase {
             }
             app.terminate()
         }
-        // Opened by tapping "+", the way you do: it must sit above the composer.
-        let app = launch(["-demoScreen", "chat"])
+    }
+
+    /// The same menu already open at launch (-demoMenu). Kept apart: it has crashed before.
+    func testMenuAtLaunch() {
+        let app = launch(["-demoScreen", "new", "-demoMenu"])
         settle()
-        let plus = app.buttons["Add files and more"].firstMatch
-        if plus.waitForExistence(timeout: 5) {
-            plus.tap()
-            settle(1)
-            snap(app, "menu/tapped-open")
-        }
+        snap(app, "menu/at-launch")
         app.terminate()
     }
 

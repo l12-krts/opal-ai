@@ -79,13 +79,23 @@ struct ChatScreen: View {
                 Visible(height: g.size.height - g.safeAreaInsets.top - g.safeAreaInsets.bottom, bottom: g.frame(in: .global).maxY - g.safeAreaInsets.bottom)
             } action: { v in
                 viewport = max(viewport, v.height)
+                guard !VisibleArea.tracked else { return }
+                // iOS 17: measured in window coordinates.
                 let old = visibleBottom
                 visibleBottom = v.bottom
-                // The keyboard came up while the latest message was in view: keep it in view.
                 if old > 0, v.bottom < old - 1, end.top <= old + 60, !showsWelcome {
                     withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo("end", anchor: .bottom) }
                 }
                 let inView = end.top <= v.bottom + 60
+                if inView != endInView { endInView = inView }
+            }
+            .onVisibleAreaChange { old, new in
+                end.bottom = new.bottom
+                // The keyboard came up while the latest message was in view: keep it in view.
+                if new.height < old.height - 1, endY <= old.bottom + 60, !showsWelcome {
+                    withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo("end", anchor: .bottom) }
+                }
+                let inView = endY <= new.bottom + 60
                 if inView != endInView { endInView = inView }
             }
             .overlay(alignment: .bottom) { jumpButton(proxy) }
@@ -176,8 +186,15 @@ struct ChatScreen: View {
             }
             Color.clear.frame(height: 1)
                 .id("end")
-                .onGeometryChange(for: CGFloat.self) { $0.frame(in: .named("thread")).minY } action: { endY = $0 }
+                .onGeometryChange(for: CGFloat.self) { $0.frame(in: .named("thread")).minY } action: { y in
+                    endY = y
+                    // The reply grew past the bottom of the screen (or back).
+                    guard VisibleArea.tracked else { return }
+                    let inView = y <= end.bottom + 60
+                    if inView != endInView { endInView = inView }
+                }
                 .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: { y in
+                    guard !VisibleArea.tracked else { return }
                     end.top = y
                     let inView = y <= visibleBottom + 60
                     if inView != endInView { endInView = inView }
@@ -608,7 +625,11 @@ struct ChatScreen: View {
 
 /// Where something is on screen, updated as it scrolls. A plain object, so writing it from a
 /// geometry callback doesn't redraw the view that holds it.
-final class ScrollMark { var top: CGFloat = 0 }
+final class ScrollMark {
+    var top: CGFloat = 0
+    /// The visible part's bottom edge in content coordinates (iOS 18).
+    var bottom: CGFloat = .greatestFiniteMagnitude
+}
 
 /// One of your skills, for the "/" list.
 struct SlashSkill: Decodable, Identifiable {
@@ -636,6 +657,37 @@ extension View {
         } else {
             self
         }
+    }
+
+    /// Reports the scroll view's visible area as it scrolls or the keyboard comes and goes, from
+    /// the scroll view itself (iOS 18). Nothing on iOS 17, where the views fall back to measuring
+    /// themselves.
+    @ViewBuilder
+    func onVisibleAreaChange(_ action: @escaping (_ old: VisibleArea, _ new: VisibleArea) -> Void) -> some View {
+        if #available(iOS 18.0, *) {
+            self.onScrollGeometryChange(for: VisibleArea.self) { g in
+                VisibleArea(
+                    bottom: g.contentOffset.y + g.containerSize.height - g.contentInsets.bottom,
+                    height: g.containerSize.height - g.contentInsets.top - g.contentInsets.bottom
+                )
+            } action: { old, new in
+                action(old, new)
+            }
+        } else {
+            self
+        }
+    }
+}
+
+/// What a scroll view shows: the bottom edge of the visible part, in content coordinates (0 is
+/// the top of the content), and how tall that part is (smaller while the keyboard is up).
+struct VisibleArea: Equatable {
+    var bottom: CGFloat
+    var height: CGFloat
+
+    static var tracked: Bool {
+        if #available(iOS 18.0, *) { return true }
+        return false
     }
 }
 

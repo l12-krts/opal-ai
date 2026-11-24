@@ -47,7 +47,16 @@ struct CodeThreadView: View {
                         Label(sendError, systemImage: "exclamationmark.circle").font(.footnote).foregroundStyle(Color.danger)
                     }
                     Color.clear.frame(height: 1).id("bottom")
+                        .onGeometryChange(for: CGFloat.self) { $0.frame(in: .named("codeThread")).minY } action: { y in
+                            // iOS 18: where the end is in the content, against the visible area.
+                            guard VisibleArea.tracked else { return }
+                            end.top = y
+                            let next = y <= end.bottom + 80
+                            if next != atEnd { atEnd = next }
+                        }
                         .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: { y in
+                            // iOS 17: in window coordinates.
+                            guard !VisibleArea.tracked else { return }
                             end.top = y
                             let next = y <= visibleBottom + 80
                             if next != atEnd { atEnd = next }
@@ -55,9 +64,20 @@ struct CodeThreadView: View {
                 }
                 .padding(.horizontal, 18)
                 .padding(.vertical, 12)
+                .coordinateSpace(.named("codeThread"))
                 .animation(Motion.morph, value: working)
             }
+            .onVisibleAreaChange { old, new in
+                end.bottom = new.bottom
+                // The keyboard came up while the latest output was in view: keep it there.
+                if new.height < old.height - 1, end.top <= old.bottom + 80 {
+                    withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo("bottom", anchor: .bottom) }
+                }
+                let next = end.top <= new.bottom + 80
+                if next != atEnd { atEnd = next }
+            }
             .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).maxY - $0.safeAreaInsets.bottom } action: { bottom in
+                guard !VisibleArea.tracked else { return }
                 let old = visibleBottom
                 visibleBottom = bottom
                 // The keyboard came up while the latest output was in view: keep it there.
