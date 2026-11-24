@@ -34,6 +34,14 @@ final class ScreenshotTests: XCTestCase {
         Thread.sleep(forTimeInterval: seconds)
     }
 
+    /// Runs first (tests run in name order): the first launch on a fresh CI simulator is slow and
+    /// sometimes loses its connection, so let that happen here rather than in a real test.
+    func test0WarmUp() {
+        let app = launch(["-demoScreen", "new"])
+        settle(4)
+        app.terminate()
+    }
+
     /// Every main screen and settings page, light and dark.
     func testScreens() {
         let screens: [(String, [String])] = [
@@ -95,6 +103,16 @@ final class ScreenshotTests: XCTestCase {
             }
             app.terminate()
         }
+        // Opened by tapping "+", the way you do: it must sit above the composer.
+        let app = launch(["-demoScreen", "chat"])
+        settle()
+        let plus = app.buttons["Add files and more"].firstMatch
+        if plus.waitForExistence(timeout: 5) {
+            plus.tap()
+            settle(1)
+            snap(app, "menu/tapped-open")
+        }
+        app.terminate()
     }
 
     /// Sending: the message flies up from the composer, then the reply streams in under it.
@@ -138,11 +156,8 @@ final class ScreenshotTests: XCTestCase {
         settle()
         let button = app.buttons["Open sidebar"].firstMatch
         guard button.waitForExistence(timeout: 5) else { return XCTFail("No sidebar button") }
+        // XCUITest waits for animations to finish before a screenshot, so only the end state.
         button.tap()
-        for i in 0..<4 {
-            snap(app, "sidebar/open-\(i)")
-            Thread.sleep(forTimeInterval: 0.06)
-        }
         settle(1)
         snap(app, "sidebar/open-done")
         app.terminate()

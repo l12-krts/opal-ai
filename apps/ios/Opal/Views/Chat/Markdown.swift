@@ -147,7 +147,21 @@ enum MarkdownBlock: Hashable {
 
     /// Inline markdown (bold, italics, code, links) as attributed text.
     static func inline(_ s: String) -> AttributedString {
-        (try? AttributedString(markdown: s, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(s)
+        let text = closingOpenMarks(s)
+        return (try? AttributedString(markdown: text, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(s)
+    }
+
+    /// While a reply streams, "**bold" arrives before its closing "**". Close what's open so the
+    /// markers never show, as the web's renderer does.
+    static func closingOpenMarks(_ s: String) -> String {
+        var out = s
+        if s.filter({ $0 == "`" }).count % 2 == 1 { out += "`" }
+        let strong = s.components(separatedBy: "**").count - 1
+        if strong % 2 == 1 {
+            // "**bold" or "**bold*" (half the closing has arrived).
+            if out.hasSuffix("*") && !out.hasSuffix("**") { out += "*" } else { out += "**" }
+        }
+        return out
     }
 
     /// The same text with the markdown taken out.

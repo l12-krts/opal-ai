@@ -315,16 +315,35 @@ private struct PairSheet: View {
                     .pickerStyle(.segmented)
 
                     if let p = pairing, p.origins.count > 1 {
-                        HStack {
-                            Text("Opal's address from that machine").font(.system(size: 14)).foregroundStyle(.secondary)
-                            Spacer()
-                            Picker("Address", selection: $pick) {
+                        VStack(alignment: .leading, spacing: 7) {
+                            FieldLabel("Opal's address from that machine")
+                            Menu {
                                 ForEach(Array(p.origins.enumerated()), id: \.offset) { i, o in
-                                    Text("\(o.origin) (\(o.label))").tag(i)
+                                    Button {
+                                        pick = i
+                                    } label: {
+                                        if i == pick { Label("\(o.origin) (\(o.label))", systemImage: "checkmark") } else { Text("\(o.origin) (\(o.label))") }
+                                    }
                                 }
+                            } label: {
+                                HStack(spacing: 8) {
+                                    Text(p.origins[safe: pick]?.origin ?? "")
+                                        .font(.system(size: 14, design: .monospaced))
+                                        .lineLimit(1)
+                                        .truncationMode(.middle)
+                                    Text(p.origins[safe: pick]?.label ?? "")
+                                        .font(.system(size: 13))
+                                        .foregroundStyle(.secondary)
+                                        .lineLimit(1)
+                                        .layoutPriority(1)
+                                    Spacer(minLength: 4)
+                                    Image(systemName: "chevron.up.chevron.down").font(.system(size: 12, weight: .medium)).foregroundStyle(.secondary)
+                                }
+                                .foregroundStyle(.primary)
+                                .padding(.horizontal, 14)
+                                .frame(height: 44)
+                                .background(Color.wash, in: .rect(cornerRadius: 12, style: .continuous))
                             }
-                            .pickerStyle(.menu)
-                            .tint(.secondary)
                         }
                     }
 

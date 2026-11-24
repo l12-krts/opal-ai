@@ -582,7 +582,7 @@ struct SecretsSettingsPage: View {
                 if let secrets {
                     if secrets.isEmpty { EmptyRow("No secrets yet") }
                     ForEach(secrets) { s in
-                        SettingsRow(label: s.title, sub: s.name + (s.lastUsedAt.map { " · used \($0.formatted(date: .abbreviated, time: .omitted))" } ?? ""), systemImage: "key", mono: true) {
+                        SettingsRow(label: s.title, sub: s.name, info: s.lastUsedAt.map { "Used \($0.formatted(date: .abbreviated, time: .omitted))" }, systemImage: "key", mono: true) {
                             Button { deleting = s } label: {
                                 Image(systemName: "trash").font(.system(size: 15)).foregroundStyle(.secondary).frame(width: 36, height: 36)
                             }
@@ -914,11 +914,15 @@ struct SkillsSettingsPage: View {
                 SettingsGroup(title: list.isEmpty ? "Start from an example" : "Examples") {
                     ForEach(unused, id: \.key) { e in
                         SettingsRow(label: e.name, sub: e.description, systemImage: "wand.and.stars") {
-                            Button("Use") { editing = Draft(skill: nil, example: e) }
-                                .font(.system(size: 14, weight: .medium))
-                                .buttonStyle(.bordered)
-                                .buttonBorderShape(.capsule)
-                                .tint(.primary)
+                            Button { editing = Draft(skill: nil, example: e) } label: {
+                                Text("Use")
+                                    .font(.system(size: 14, weight: .medium))
+                                    .padding(.horizontal, 14)
+                                    .frame(height: 32)
+                                    .background(Color.wash, in: Capsule())
+                            }
+                            .buttonStyle(PressableStyle())
+                            .accessibilityLabel("Use \(e.name)")
                         }
                     }
                 }

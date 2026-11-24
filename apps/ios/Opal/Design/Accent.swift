@@ -114,3 +114,23 @@ struct AccentSwatch: View {
             .accessibilityAddTraits(selected ? [.isButton, .isSelected] : .isButton)
     }
 }
+
+/// Switches in the accent. With the default accent in dark mode the track would be white under a
+/// white knob, so those use green, like the system's.
+struct OpalSwitchStyle: ToggleStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        OpalSwitch(configuration: configuration)
+    }
+
+    private struct OpalSwitch: View {
+        let configuration: ToggleStyleConfiguration
+        @Environment(\.accent) private var accent
+        @Environment(\.colorScheme) private var scheme
+
+        var body: some View {
+            Toggle(configuration)
+                .toggleStyle(SwitchToggleStyle())
+                .tint(accent.id == .mono && scheme == .dark ? Color.success : accent.line)
+        }
+    }
+}

@@ -138,7 +138,7 @@ jobs:
             -derivedDataPath build \
             -resultBundlePath screens.xcresult \
             CODE_SIGNING_ALLOWED=NO \
-            2>&1 | grep -E "error:|warning: .*/Opal(UITests)?/|Test Case|Executed|\*\* TEST"
+            2>&1 | grep --line-buffered -E "error:|warning: .*/Opal(UITests)?/|Test Case|Executed|\*\* TEST|BUILD"
 
       - name: Print the screenshots
         if: always()

@@ -17,6 +17,8 @@ struct CodeThreadView: View {
     /// is, so reading further up is never yanked away.
     @State private var atEnd = true
     @State private var visibleBottom: CGFloat = 0
+    /// Where the end is on screen, every scroll frame; not observed, so writing it doesn't redraw.
+    @State private var end = ScrollMark()
 
     private var thread: CodeThread? { code.thread(threadId) }
     private var items: [CodeItem] { code.items[threadId] ?? [] }
@@ -45,7 +47,8 @@ struct CodeThreadView: View {
                         Label(sendError, systemImage: "exclamationmark.circle").font(.footnote).foregroundStyle(Color.danger)
                     }
                     Color.clear.frame(height: 1).id("bottom")
-                        .onGeometryChange(for: CGFloat.self) { $0.frame(in: .scrollView).minY } action: { y in
+                        .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: { y in
+                            end.top = y
                             let next = y <= visibleBottom + 80
                             if next != atEnd { atEnd = next }
                         }
@@ -54,9 +57,18 @@ struct CodeThreadView: View {
                 .padding(.vertical, 12)
                 .animation(Motion.morph, value: working)
             }
-            .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { visibleBottom = $0 }
+            .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).maxY - $0.safeAreaInsets.bottom } action: { bottom in
+                let old = visibleBottom
+                visibleBottom = bottom
+                // The keyboard came up while the latest output was in view: keep it there.
+                if old > 0, bottom < old - 1, end.top <= old + 80 {
+                    withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo("bottom", anchor: .bottom) }
+                }
+                let next = end.top <= bottom + 80
+                if next != atEnd { atEnd = next }
+            }
             .scrollDismissesKeyboard(.interactively)
-            .defaultScrollAnchor(.bottom)
+            .startsAtBottom()
             .onChange(of: items.count) { _, _ in
                 guard atEnd else { return }
                 withAnimation(Motion.morph) { proxy.scrollTo("bottom", anchor: .bottom) }
@@ -279,7 +291,7 @@ struct GitSheet: View {
                     VStack(spacing: 1) {
                         Text("Changes").font(.system(size: 15, weight: .semibold))
                         if let b = data?.status.branch {
-                            Label(b, systemImage: "arrow.triangle.branch").font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
+                            Text(b).font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
                         }
                     }
                 }

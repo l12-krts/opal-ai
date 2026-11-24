@@ -16,6 +16,7 @@ struct OpalApp: App {
                 .environment(session)
                 .environment(\.accent, accent)
                 .tint(accent.line)
+                .toggleStyle(OpalSwitchStyle())
                 .preferredColorScheme(session.theme.colorScheme)
         }
     }

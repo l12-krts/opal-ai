@@ -48,6 +48,9 @@ struct ChatScreen: View {
     @State private var visibleBottom: CGFloat = 0
     @State private var endY: CGFloat = 0
     @State private var endInView = true
+    /// Where the end of the thread is on screen, updated every scroll frame. A plain object, so
+    /// writing it doesn't redraw the chat.
+    @State private var end = ScrollMark()
     /// The message sent from this screen: it's scrolled to the top and the reply grows under it.
     @State private var pinned: String?
     @State private var pinnedTop: CGFloat?
@@ -56,6 +59,7 @@ struct ChatScreen: View {
     @State private var skills: [SlashSkill] = []
 
     private enum MenuPage { case main, models, camera }
+    private struct Visible: Equatable { var height: CGFloat; var bottom: CGFloat }
 
     private static let landing = Animation.timingCurve(0.23, 1, 0.32, 1, duration: 0.42)
 
@@ -70,11 +74,19 @@ struct ChatScreen: View {
             }
             .scrollDismissesKeyboard(.interactively)
             .startsAtBottom()
-            .onGeometryChange(for: CGSize.self) { g in
-                CGSize(width: g.size.height - g.safeAreaInsets.top - g.safeAreaInsets.bottom, height: g.size.height - g.safeAreaInsets.bottom)
+            .onGeometryChange(for: Visible.self) { g in
+                // Everything in window coordinates, like the end marker below.
+                Visible(height: g.size.height - g.safeAreaInsets.top - g.safeAreaInsets.bottom, bottom: g.frame(in: .global).maxY - g.safeAreaInsets.bottom)
             } action: { v in
-                viewport = max(viewport, v.width)
-                visibleBottom = v.height
+                viewport = max(viewport, v.height)
+                let old = visibleBottom
+                visibleBottom = v.bottom
+                // The keyboard came up while the latest message was in view: keep it in view.
+                if old > 0, v.bottom < old - 1, end.top <= old + 60, !showsWelcome {
+                    withAnimation(.easeOut(duration: 0.25)) { proxy.scrollTo("end", anchor: .bottom) }
+                }
+                let inView = end.top <= v.bottom + 60
+                if inView != endInView { endInView = inView }
             }
             .overlay(alignment: .bottom) { jumpButton(proxy) }
             .onAppear { if model.loaded { proxy.scrollTo("end", anchor: .bottom) } }
@@ -165,7 +177,8 @@ struct ChatScreen: View {
             Color.clear.frame(height: 1)
                 .id("end")
                 .onGeometryChange(for: CGFloat.self) { $0.frame(in: .named("thread")).minY } action: { endY = $0 }
-                .onGeometryChange(for: CGFloat.self) { $0.frame(in: .scrollView).minY } action: { y in
+                .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: { y in
+                    end.top = y
                     let inView = y <= visibleBottom + 60
                     if inView != endInView { endInView = inView }
                 }
@@ -592,6 +605,10 @@ struct ChatScreen: View {
         }
     }
 }
+
+/// Where something is on screen, updated as it scrolls. A plain object, so writing it from a
+/// geometry callback doesn't redraw the view that holds it.
+final class ScrollMark { var top: CGFloat = 0 }
 
 /// One of your skills, for the "/" list.
 struct SlashSkill: Decodable, Identifiable {

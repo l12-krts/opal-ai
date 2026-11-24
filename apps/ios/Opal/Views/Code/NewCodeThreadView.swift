@@ -83,6 +83,8 @@ struct NewCodeThreadView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
         .onAppear(perform: pickDefault)
+        // Opened before Code's state arrived (a cold start straight to New task): pick once it does.
+        .onChange(of: code.machines.count) { _, _ in pickDefault() }
         .task { await loadDefaults() }
     }
 
@@ -180,6 +182,8 @@ struct NewCodeThreadView: View {
                 HStack(spacing: 8) {
                     AgentGlyph(agent: id, size: 18)
                     Text(label).font(.system(size: 15, weight: .semibold)).foregroundStyle(.primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
                     Spacer(minLength: 0)
                     Image(systemName: on ? "checkmark.circle.fill" : "circle")
                         .foregroundStyle(on ? accent.line : Color.secondary)
