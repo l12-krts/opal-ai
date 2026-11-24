@@ -23,16 +23,16 @@ struct SidebarView: View {
                     if !searching {
                         // Memory, skills and connectors live in Customization; study and
                         // handwriting in Settings (as on the web).
-                        NavRow(title: "Code", systemImage: "chevron.left.forwardslash.chevron.right", badge: code.needsYouCount, active: shell.route == .code) {
+                        NavRow(title: "Code", glyph: .code, badge: code.needsYouCount, active: shell.route == .code) {
                             shell.go(.code)
                         }
-                        NavRow(title: "Agents", systemImage: "person.2", active: shell.route == .agents) {
+                        NavRow(title: "Agents", glyph: .agents, active: shell.route == .agents) {
                             shell.go(.agents)
                         }
-                        NavRow(title: "Customization", systemImage: "sparkles", active: shell.route == .customization) {
+                        NavRow(title: "Customization", glyph: .customization, active: shell.route == .customization) {
                             shell.go(.customization)
                         }
-                        NavRow(title: "Settings", systemImage: "gearshape", active: shell.route == .settings) {
+                        NavRow(title: "Settings", glyph: .settings, active: shell.route == .settings) {
                             shell.go(.settings)
                         }
                         Color.clear.frame(height: 14)
@@ -204,12 +204,6 @@ struct SidebarView: View {
                 }
                 .buttonStyle(PressableStyle())
                 Spacer()
-                GlassIconButton(themeIcon, size: 50, accessibility: "Theme: \(session.theme.label)") {
-                    let next: [ThemePreference: ThemePreference] = [.system: .light, .light: .dark, .dark: .system]
-                    session.setTheme(next[session.theme] ?? .system)
-                }
-                .contentTransition(.symbolEffect(.replace))
-                .sensoryFeedback(.selection, trigger: session.theme)
                 Menu {
                     Section(session.userName ?? "") {
                         Button { shell.go(.settings) } label: { Label("Settings", systemImage: "gearshape") }
@@ -230,14 +224,6 @@ struct SidebarView: View {
         .padding(.bottom, 8)
     }
 
-    private var themeIcon: String {
-        switch session.theme {
-        case .system: "circle.lefthalf.filled"
-        case .light: "sun.max"
-        case .dark: "moon"
-        }
-    }
-
     private var initials: String {
         let parts = (session.userName ?? "").split(separator: " ").prefix(2)
         let s = parts.compactMap(\.first).map(String.init).joined()
@@ -245,10 +231,10 @@ struct SidebarView: View {
     }
 }
 
-/// A place in the sidebar: icon, title, and a count when something waits for you.
+/// A place in the sidebar: icon (the web's), title, and a count when something waits for you.
 struct NavRow: View {
     let title: String
-    let systemImage: String
+    let glyph: NavGlyph
     var badge: Int = 0
     var active = false
     let action: () -> Void
@@ -256,8 +242,7 @@ struct NavRow: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 14) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 18, weight: .regular))
+                NavIcon(glyph: glyph, size: 23)
                     .frame(width: 26)
                 Text(title).font(.system(size: 17, weight: .regular))
                 Spacer(minLength: 0)

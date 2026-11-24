@@ -321,13 +321,15 @@ struct Drawer<Sidebar: View, Content: View>: View {
                         .onTapGesture { shell.setSidebar(false) }
                         .allowsHitTesting(shell.sidebarOpen)
                 }
-                .background(alignment: .leading) {
-                    // A soft edge where the screen meets the sidebar, instead of a heavy shadow.
-                    LinearGradient(colors: [.clear, .black.opacity(0.12)], startPoint: .leading, endPoint: .trailing)
-                        .frame(width: 18)
-                        .offset(x: -18)
-                        .opacity(min(progress, 1))
-                        .ignoresSafeArea()
+                .background {
+                    // A soft shadow cast by the screen's own rounded shape, so it follows the
+                    // corners. Only while the screen is moved aside.
+                    if progress > 0.001 {
+                        RoundedRectangle(cornerRadius: radius, style: .continuous)
+                            .fill(Color.canvas)
+                            .shadow(color: .black.opacity(0.16 * min(progress, 1)), radius: 16, x: -3, y: 0)
+                            .ignoresSafeArea()
+                    }
                 }
                 .offset(x: progress * w)
                 .accessibilityHidden(shell.sidebarOpen)
