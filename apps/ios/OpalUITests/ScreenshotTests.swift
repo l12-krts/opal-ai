@@ -288,12 +288,21 @@ final class ScreenshotTests: XCTestCase {
                 app.terminate()
                 continue
             }
-            var tries = 0
-            while !card.isHittable && tries < 6 {
-                app.swipeDown()
-                tries += 1
+            // Scroll it clear of the header and the composer, in short drags, then tap it.
+            let height = app.frame.height
+            for _ in 0..<12 {
+                let f = card.frame
+                let middle = app.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5))
+                if f.minY < 150 {
+                    middle.press(forDuration: 0.05, thenDragTo: middle.withOffset(CGVector(dx: 0, dy: min(280, 170 - f.minY))))
+                } else if f.maxY > height - 130 {
+                    middle.press(forDuration: 0.05, thenDragTo: middle.withOffset(CGVector(dx: 0, dy: -min(280, f.maxY - (height - 150)))))
+                } else {
+                    break
+                }
+                settle(0.8)
             }
-            card.tap()
+            card.coordinate(withNormalizedOffset: CGVector(dx: 0.5, dy: 0.5)).tap()
             settle(2)
             snap(app, "docs/open-\(kind)")
             XCTAssertTrue(app.navigationBars.buttons["Done"].firstMatch.waitForExistence(timeout: 3), "Tapping the \(kind) card didn't open it")

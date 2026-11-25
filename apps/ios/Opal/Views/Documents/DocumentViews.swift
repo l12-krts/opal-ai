@@ -637,45 +637,53 @@ struct DocPreview: View {
     var height: CGFloat
 
     var body: some View {
-        Group {
-            switch snap.content {
-            case .doc(let md):
-                MarkdownView(text: String(md.prefix(1400)), size: 13)
-                    .padding(.horizontal, 16)
-                    .padding(.top, 14)
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-                    .overlay(alignment: .bottom) {
-                        LinearGradient(colors: [Color.canvas.opacity(0), Color.canvas], startPoint: .top, endPoint: .bottom).frame(height: 56)
-                    }
-            case .slides(let d):
-                HStack(spacing: 10) {
-                    ForEach(Array(d.slides.prefix(4).enumerated()), id: \.offset) { i, s in
-                        SlideView(slide: s, theme: d.theme, index: i, total: d.slides.count)
-                            .frame(width: (height - 24) * 16 / 9, height: height - 24)
-                            .clipShape(.rect(cornerRadius: 6, style: .continuous))
-                            .overlay { RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(Color.primary.opacity(0.1)) }
-                    }
+        // A canvas exactly the size it's given, with the document drawn over it from the top
+        // left and clipped: a wide deck or sheet never makes the card (or the chat) wider, and a
+        // long doc shows its beginning.
+        Color.clear
+            .frame(maxWidth: .infinity)
+            .frame(height: height)
+            .background { if case .slides = snap.content { Color.wash.opacity(0.5) } }
+            .overlay(alignment: .topLeading) { content }
+            .overlay(alignment: .bottom) {
+                if case .doc = snap.content {
+                    LinearGradient(colors: [Color.canvas.opacity(0), Color.canvas], startPoint: .top, endPoint: .bottom).frame(height: 56)
                 }
-                .padding(12)
-                .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .leading)
-                .background(Color.wash.opacity(0.5))
-            case .sheet(let s):
-                SheetGridView(sheet: s, compact: true, maxRows: max(3, Int((height - 30) / 28)))
-                    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-            case .chart(let c):
-                ChartDocView(chart: c, compact: true)
-                    .padding(.horizontal, 14)
-                    .padding(.vertical, 12)
-            case .whiteboard(let w):
-                WhiteboardFit(board: w, dots: true)
-                    .padding(8)
             }
+            .clipped()
+            .allowsHitTesting(false)
+            .accessibilityHidden(true)
+    }
+
+    @ViewBuilder private var content: some View {
+        switch snap.content {
+        case .doc(let md):
+            MarkdownView(text: String(md.prefix(1400)), size: 13)
+                .padding(.horizontal, 16)
+                .padding(.top, 14)
+        case .slides(let d):
+            HStack(spacing: 10) {
+                ForEach(Array(d.slides.prefix(4).enumerated()), id: \.offset) { i, s in
+                    SlideView(slide: s, theme: d.theme, index: i, total: d.slides.count)
+                        .frame(width: (height - 24) * 16 / 9, height: height - 24)
+                        .clipShape(.rect(cornerRadius: 6, style: .continuous))
+                        .overlay { RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(Color.primary.opacity(0.1)) }
+                }
+            }
+            .padding(12)
+            .fixedSize()
+        case .sheet(let s):
+            SheetGridView(sheet: s, compact: true, maxRows: max(3, Int((height - 30) / 28)))
+                .fixedSize()
+        case .chart(let c):
+            ChartDocView(chart: c, compact: true)
+                .padding(.horizontal, 14)
+                .padding(.vertical, 12)
+                .frame(height: height)
+        case .whiteboard(let w):
+            WhiteboardFit(board: w, dots: true)
+                .padding(8)
+                .frame(height: height)
         }
-        // Top-aligned: a long doc or sheet shows its beginning.
-        .frame(height: height, alignment: .top)
-        .frame(maxWidth: .infinity)
-        .clipped()
-        .allowsHitTesting(false)
-        .accessibilityHidden(true)
     }
 }
