@@ -33,6 +33,8 @@ enum Demo {
         case "code.new": return (.code, [.newCodeThread])
         case "settings": return (.settings, [])
         case "customization": return (.customization, [])
+        case "docs": return (.chat(id: "demo-docs", isNew: false, agentId: nil), [])
+        case "documents": return (.documents, [])
         default:
             if screen.hasPrefix("settings."), let page = SettingsPage(rawValue: String(screen.dropFirst(9))) {
                 return (SettingsPage.customization.contains(page) ? .customization : SettingsPage.code.contains(page) ? .code : .settings, [.settings(page)])
@@ -93,7 +95,7 @@ final class DemoURLProtocol: URLProtocol, @unchecked Sendable {
         case ("POST", "/api/connectors"): return respond(200, #"{"redirectUrl":"https://example.com"}"#)
         case ("GET", "/api/study/sources"): return respond(200, DemoData.studySources)
         case ("GET", "/api/study/browse"): return respond(200, DemoData.books)
-        case ("GET", "/api/artifacts"): return respond(200, DemoData.artifacts)
+        case ("GET", "/api/artifacts"): return respond(200, q("kinds")?.contains("slides") == true ? DemoData.documents : DemoData.artifacts)
         case ("GET", _) where path.hasPrefix("/api/artifacts/"): return respond(200, DemoData.artifact(id))
         case ("GET", "/api/handwriting/profiles"): return respond(200, DemoData.handwritingProfiles)
         case ("POST", "/api/handwriting/profiles"): return respond(200, #"{"profile":{"id":"h2","name":"New","glyphCount":0}}"#)
@@ -202,6 +204,7 @@ enum DemoData {
         """#
 
     static func conversation(_ id: String) -> String {
+        if id == "demo-docs" { return docsConversation }
         if id == "demo-agent-thread" {
             return #"""
             {"conversation":{"title":"Scout","mode":"chat"},
@@ -389,6 +392,7 @@ enum DemoData {
     }
 
     static func artifact(_ id: String) -> String {
+        if let document = documentArtifact(id) { return document }
         if id == "a2" {
             return #"""
             {"artifact":{"kind":"flashcards","title":"Cell organelles","data":{"cards":[
@@ -402,4 +406,114 @@ enum DemoData {
     }
 
     static let handwritingProfiles = #"{"profiles":[{"id":"h1","name":"My handwriting","glyphCount":0}]}"#
+}
+
+// MARK: Documents
+// One of each kind of document (-demoScreen docs shows them in a chat, -demoScreen documents on
+// the Documents page), and a deck that was changed once, so it's at version 2.
+
+extension DemoData {
+    fileprivate struct Doc {
+        let id: String
+        let kind: String
+        let title: String
+        /// The content's fields, without the braces.
+        let fields: String
+        let version: Int
+        let age: Double
+    }
+
+    private static let lisbonFields = #"""
+        "markdown":"# A weekend in Lisbon\n\nTwo days, mostly on foot, with one tram ride for the views.\n\n## Saturday\n\n- **Morning:** coffee and pastries in Belém, then the Jerónimos Monastery.\n- **Afternoon:** the riverside walk to LX Factory.\n- **Evening:** dinner in Alfama, then a fado bar.\n\n## Sunday\n\n- **Morning:** tram 28 up to Graça and the Senhora do Monte viewpoint.\n- **Afternoon:** the castle, then lunch at the Time Out Market.\n- **Evening:** sunset from Santa Catarina.\n\n## Good to know\n\n| Topic | Tip |\n| --- | --- |\n| Getting around | A 24-hour pass covers trams, buses and the metro. |\n| Shoes | The hills are steep and the pavements slippery. |\n| Booking | Reserve the castle and a fado dinner a few days ahead. |"
+        """#
+
+    private static let budgetFields = #"""
+        "columns":[{"name":"Item","type":"text"},{"name":"Category","type":"text"},{"name":"Cost","type":"currency"}],
+        "rows":[["Flights","Travel",184],["Hotel, 2 nights","Stay",236],["Transport pass","Travel",13.6],["Castle tickets","Sights",30],["Fado dinner","Food",90],["Other meals","Food",120],["Total","","=SUM(C2:C7)"],["Per day","","=C8/2"]],
+        "currency":"€"
+        """#
+
+    private static let slideList = #"""
+        {"layout":"title","title":"How photosynthesis works","subtitle":"Biology, chapter 3"},
+        {"layout":"content","title":"What goes in, what comes out","bullets":["Light, water and carbon dioxide go in","Glucose and oxygen come out","It all happens in the chloroplasts"],"notes":"Start with the equation on the board."},
+        {"layout":"content","title":"Two stages","bullets":["The light reactions split water and store energy","The Calvin cycle builds glucose from carbon dioxide"],"notes":"Draw the two stages as boxes joined by arrows."},
+        {"layout":"quote","title":"Jan Ingenhousz, 1779","body":"Plants purify the air in sunlight, and spoil it in the dark."}
+        """#
+
+    private static let slidesV1Fields = #""theme":"green","slides":[\#(slideList)]"#
+
+    private static let slidesV2Fields = #"""
+        "theme":"green","slides":[\#(slideList),
+        {"layout":"content","title":"Why it matters","bullets":["Nearly every food chain starts with it","It made the oxygen we breathe","It takes carbon dioxide out of the air"],"notes":"Ask the class what would happen without it."}]
+        """#
+
+    private static let sunshineFields = #"""
+        "type":"line","labels":["Jan","Feb","Mar","Apr","May","Jun","Jul","Aug","Sep","Oct","Nov","Dec"],
+        "series":[{"name":"Lisbon","values":[142,156,207,234,291,315,353,341,264,213,153,138]},{"name":"London","values":[62,78,115,169,199,204,212,205,149,117,72,52]}],
+        "unit":"h","yLabel":"Hours of sunshine","caption":"Monthly averages, rounded."
+        """#
+
+    private static let boardFields = #"""
+        "items":[
+          {"id":"title","type":"text","x":0,"y":-96,"text":"Launch plan","size":34},
+          {"id":"line","type":"stroke","points":[[0,-44],[70,-40],[140,-45],[210,-41],[250,-44]],"color":"orange","width":4},
+          {"id":"n1","type":"note","x":0,"y":0,"text":"Write the announcement","color":"yellow"},
+          {"id":"n2","type":"note","x":230,"y":0,"text":"Record a short demo video","color":"pink"},
+          {"id":"n3","type":"note","x":460,"y":0,"text":"Line up five beta users","color":"green"},
+          {"id":"day","type":"shape","shape":"ellipse","x":220,"y":240,"w":200,"h":90,"text":"Launch day","color":"blue"},
+          {"id":"ask","type":"shape","shape":"diamond","x":220,"y":410,"w":200,"h":120,"text":"Feedback good?"},
+          {"id":"a1","type":"arrow","from":"n1","to":"day"},
+          {"id":"a2","type":"arrow","from":"n2","to":"day"},
+          {"id":"a3","type":"arrow","from":"n3","to":"day"},
+          {"id":"a4","type":"arrow","from":"day","to":"ask","dashed":true,"text":"a week later"}
+        ]
+        """#
+
+    fileprivate static let lisbon = Doc(id: "d-doc", kind: "doc", title: "A weekend in Lisbon", fields: lisbonFields, version: 1, age: 7200)
+    fileprivate static let budget = Doc(id: "d-sheet", kind: "sheet", title: "Trip budget", fields: budgetFields, version: 1, age: 7100)
+    fileprivate static let slidesV1 = Doc(id: "d-slides", kind: "slides", title: "How photosynthesis works", fields: slidesV1Fields, version: 1, age: 3600)
+    fileprivate static let slidesV2 = Doc(id: "d-slides", kind: "slides", title: "How photosynthesis works", fields: slidesV2Fields, version: 2, age: 60)
+    fileprivate static let sunshine = Doc(id: "d-chart", kind: "chart", title: "Hours of sunshine", fields: sunshineFields, version: 1, age: 1800)
+    fileprivate static let board = Doc(id: "d-board", kind: "whiteboard", title: "Launch plan", fields: boardFields, version: 1, age: 1700)
+
+    fileprivate static func json(_ d: Doc) -> String {
+        #"{"id":"\#(d.id)","kind":"\#(d.kind)","title":"\#(d.title)","createdAt":\#(ago(d.age + 60)),"updatedAt":\#(ago(d.age)),"conversationId":"demo-docs","data":{\#(d.fields),"version":\#(d.version)}}"#
+    }
+
+    /// A finished create_* or update_document call that made `d`.
+    fileprivate static func part(_ tool: String, _ callId: String, input: String, _ d: Doc) -> String {
+        #"{"type":"tool-\#(tool)","toolCallId":"\#(callId)","state":"output-available","input":\#(input),"output":{"ok":true,"artifactId":"\#(d.id)","kind":"\#(d.kind)","title":"\#(d.title)","version":\#(d.version),"document":{\#(d.fields),"version":\#(d.version)}}}"#
+    }
+
+    fileprivate static func created(_ callId: String, _ d: Doc) -> String {
+        part("create_\(d.kind)", callId, input: #"{"title":"\#(d.title)",\#(d.fields)}"#, d)
+    }
+
+    /// GET /api/artifacts?kinds=doc,slides,… for the Documents page.
+    static var documents: String {
+        #"{"artifacts":[\#([slidesV2, board, sunshine, budget, lisbon].map(json).joined(separator: ","))]}"#
+    }
+
+    /// GET /api/artifacts/:id for a document, or nil when `id` isn't one.
+    static func documentArtifact(_ id: String) -> String? {
+        guard let d = [slidesV2, board, sunshine, budget, lisbon].first(where: { $0.id == id }) else { return nil }
+        return #"{"artifact":\#(json(d))}"#
+    }
+
+    static var docsConversation: String {
+        let update = #"{"id":"d-slides","edits":[{"op":"insert_slide","slide":{"title":"Why it matters"}}]}"#
+        return #"""
+        {"conversation":{"title":"Documents","mode":"chat"},
+         "messages":[
+          {"id":"dm1","role":"user","parts":[{"type":"text","text":"Plan a weekend in Lisbon as a doc, with a budget sheet."}],"metadata":null},
+          {"id":"dm2","role":"assistant","parts":[\#(created("dd1", lisbon)),\#(created("dd2", budget)),{"type":"text","text":"Here's a two-day plan and a budget. Open either one to see it full screen or share it."}],"metadata":{"model":"opal-auto"}},
+          {"id":"dm3","role":"user","parts":[{"type":"text","text":"Make a short deck on photosynthesis for my class."}],"metadata":null},
+          {"id":"dm4","role":"assistant","parts":[\#(created("dd3", slidesV1)),{"type":"text","text":"Four slides with speaker notes."}],"metadata":{"model":"opal-auto"}},
+          {"id":"dm5","role":"user","parts":[{"type":"text","text":"Chart the hours of sunshine in Lisbon and London, and sketch our launch plan on a whiteboard."}],"metadata":null},
+          {"id":"dm6","role":"assistant","parts":[\#(created("dd4", sunshine)),\#(created("dd5", board)),{"type":"text","text":"Lisbon gets about twice London's sunshine in winter. The plan is on the whiteboard."}],"metadata":{"model":"opal-auto"}},
+          {"id":"dm7","role":"user","parts":[{"type":"text","text":"Add a slide on why it matters."}],"metadata":null},
+          {"id":"dm8","role":"assistant","parts":[\#(part("update_document", "dd6", input: update, slidesV2)),{"type":"text","text":"Added a fifth slide, Why it matters."}],"metadata":{"model":"opal-auto"}}
+         ]}
+        """#
+    }
 }

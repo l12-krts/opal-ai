@@ -1,5 +1,6 @@
-// In-chat artifacts: generative UI (json-render), quizzes and flashcards. They are saved so they
-// can be reopened from the study page later.
+// In-chat artifacts: generative UI (json-render), quizzes and flashcards, plus documents (docs,
+// slides, sheets, charts and whiteboards, in documents.ts). They are saved so they can be reopened
+// later: practice from the study page, documents from the Documents page.
 import { tool } from "ai";
 import { nanoid } from "nanoid";
 import { z } from "zod";
@@ -7,6 +8,7 @@ import { catalog } from "@/lib/genui/catalog";
 import { db } from "../../db";
 import { artifact } from "../../db/schema";
 import type { RunContext } from "../context";
+import { documentTools } from "./documents";
 
 async function save(ctx: RunContext, kind: "quiz" | "flashcards" | "ui", title: string, data: Record<string, unknown>) {
   const id = nanoid();
@@ -40,6 +42,8 @@ const COMPONENTS = Object.keys((catalog as unknown as { data: { components: Reco
 
 export function artifactTools(ctx: RunContext) {
   return {
+    ...documentTools(ctx),
+
     render_ui: tool({
       description: `Show an interactive answer (dashboard, comparison, checklist, chart, table, summary card) instead of plain text when structure helps. The spec is a flat map of elements: { "root": "id", "elements": { "id": { "type": "Card", "props": {...}, "children": ["id2"] } } }. Allowed types: ${COMPONENTS.join(", ") || "Stack, Grid, Card, Heading, Text, Metric, Badge, KeyValue, List, Table, BarChart, Progress, Steps, Callout, Image, Link, Button, Separator"}. Nullable props may be omitted. A Button sends its 'prompt' back as the user's next message.`,
       inputSchema: z.object({

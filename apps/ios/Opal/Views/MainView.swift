@@ -4,6 +4,8 @@ enum Route: Hashable {
     case chat(id: String, isNew: Bool, agentId: String?)
     case code
     case agents
+    /// Docs, slides, sheets, charts and whiteboards from every chat.
+    case documents
     case customization
     case settings
 }
@@ -333,6 +335,8 @@ struct MainView: View {
             CodeHomeView()
         case .agents:
             AgentsView()
+        case .documents:
+            DocumentsView()
         case .customization:
             SettingsHome(title: "Customization", pages: SettingsPage.customization)
         case .settings:

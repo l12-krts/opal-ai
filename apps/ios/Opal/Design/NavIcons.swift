@@ -1,10 +1,10 @@
 import SwiftUI
 
-/// The web sidebar's icons for its four destinations: Tabler's Code, Sparkles and Settings, and
+/// The web sidebar's icons for its destinations: Tabler's Code, Files, Sparkles and Settings, and
 /// Opal's own agent face (apps/web/src/components/icons.tsx). Drawn from the same 24pt paths with
 /// Tabler's round strokes, so they match the web exactly.
 enum NavGlyph {
-    case code, agents, customization, settings
+    case code, agents, documents, customization, settings
 }
 
 struct NavIcon: View {
@@ -42,6 +42,23 @@ struct NavIconShape: Shape {
             p.addLine(to: CGPoint(x: 9.5, y: 12.25))
             p.move(to: CGPoint(x: 14.5, y: 9.75))
             p.addLine(to: CGPoint(x: 14.5, y: 12.25))
+        case .documents:
+            // Tabler "files": a folded page in front of another.
+            p.move(to: CGPoint(x: 15, y: 3))
+            p.addArc(tangent1End: CGPoint(x: 15, y: 8), tangent2End: CGPoint(x: 16, y: 8), radius: 1)
+            p.addLine(to: CGPoint(x: 20, y: 8))
+            p.move(to: CGPoint(x: 18, y: 17))
+            p.addArc(tangent1End: CGPoint(x: 9, y: 17), tangent2End: CGPoint(x: 9, y: 15), radius: 2)
+            p.addArc(tangent1End: CGPoint(x: 9, y: 3), tangent2End: CGPoint(x: 11, y: 3), radius: 2)
+            p.addLine(to: CGPoint(x: 15, y: 3))
+            p.addLine(to: CGPoint(x: 20, y: 8))
+            p.addArc(tangent1End: CGPoint(x: 20, y: 17), tangent2End: CGPoint(x: 18, y: 17), radius: 2)
+            p.closeSubpath()
+            p.move(to: CGPoint(x: 16, y: 17))
+            p.addArc(tangent1End: CGPoint(x: 16, y: 21), tangent2End: CGPoint(x: 14, y: 21), radius: 2)
+            p.addArc(tangent1End: CGPoint(x: 5, y: 21), tangent2End: CGPoint(x: 5, y: 19), radius: 2)
+            p.addArc(tangent1End: CGPoint(x: 5, y: 7), tangent2End: CGPoint(x: 7, y: 7), radius: 2)
+            p.addLine(to: CGPoint(x: 9, y: 7))
         case .customization:
             p.move(to: CGPoint(x: 16, y: 18))
             p.addCurve(to: CGPoint(x: 18, y: 20), control1: CGPoint(x: 17.105, y: 18), control2: CGPoint(x: 18, y: 18.895))

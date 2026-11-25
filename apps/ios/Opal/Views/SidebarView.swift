@@ -29,6 +29,9 @@ struct SidebarView: View {
                         NavRow(title: "Agents", glyph: .agents, active: shell.route == .agents) {
                             shell.go(.agents)
                         }
+                        NavRow(title: "Documents", glyph: .documents, active: shell.route == .documents) {
+                            shell.go(.documents)
+                        }
                         NavRow(title: "Customization", glyph: .customization, active: shell.route == .customization) {
                             shell.go(.customization)
                         }

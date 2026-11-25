@@ -31,6 +31,8 @@ import { QuizArtifact } from "./quiz";
 import { FlashcardsArtifact } from "./flashcards";
 import { HandwritingArtifact } from "./handwriting-artifact";
 import { SharedFile } from "./shared-file";
+import { DOCUMENT_TOOLS } from "@/lib/documents";
+import { DocumentArtifact } from "./document-artifact";
 
 type AnyToolPart = ToolUIPart & { input?: any; output?: any; errorText?: string; approval?: { id: string; approved?: boolean; reason?: string } };
 
@@ -39,6 +41,8 @@ export const HIDDEN = new Set(["list_agents", "list_secrets"]);
 
 // Tools that render as their own artifact or card rather than as a step in the work log.
 export const CARD_TOOLS = new Set(["request_secret", "ask_user", "render_ui", "create_quiz", "create_flashcards", "write_by_hand", "remember", "forget", "share_file"]);
+// Documents (docs, slides, sheets, charts, whiteboards) are cards too.
+for (const t of DOCUMENT_TOOLS) CARD_TOOLS.add(t);
 
 export function ToolPart({ part, name, streaming }: { part: AnyToolPart; name: string; streaming: boolean }) {
   if (part.state === "approval-requested") return <ApprovalCard part={part} name={name} />;
@@ -62,6 +66,7 @@ export function ToolPart({ part, name, streaming }: { part: AnyToolPart; name: s
     case "share_file":
       return <SharedFile part={part} streaming={streaming} />;
   }
+  if (DOCUMENT_TOOLS.has(name)) return <DocumentArtifact part={part} name={name} />;
 
   if (HIDDEN.has(name)) {
     if (part.state === "output-error") return <ToolRow part={part} name={name} streaming={streaming} />;
@@ -114,6 +119,10 @@ export function describe(name: string, input: any): { icon: typeof IconTool; lab
       return { icon: IconBook2, label: "Browsed study material" };
     case "study_read":
       return { icon: IconBook2, label: "Read study material" };
+    case "read_document":
+      return { icon: IconFile, label: "Read a document" };
+    case "list_documents":
+      return { icon: IconFile, label: input?.query ? `Looked for documents about "${input.query}"` : "Looked through documents" };
   }
   if (name.startsWith("COMPOSIO_")) {
     const slugs = Array.isArray(input?.tools) ? input.tools.map((t: any) => t?.tool_slug).filter(Boolean) : [];

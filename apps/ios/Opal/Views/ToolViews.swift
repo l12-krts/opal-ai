@@ -23,6 +23,9 @@ struct ToolPartView: View {
             case "write_by_hand": HandwritingArtifactView(call: call)
             case "remember", "forget": MemoryRow(call: call, forgot: call.name == "forget")
             case "share_file": SharedFileCard(call: call, streaming: streaming)
+            // Docs, slides, sheets, charts and whiteboards (Views/Documents).
+            case "create_doc", "create_slides", "create_sheet", "create_chart", "create_whiteboard", "update_document", "show_document":
+                DocumentToolView(call: call)
             default: ToolRow(call: call, streaming: streaming, nerd: session.nerdMode)
             }
         }

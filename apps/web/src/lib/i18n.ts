@@ -4,6 +4,7 @@ const en = {
   "app.name": "Opal",
   "nav.newChat": "New chat",
   "nav.agents": "Agents",
+  "nav.documents": "Documents",
   "nav.study": "Study",
   "nav.connectors": "Connectors",
   "nav.handwriting": "Handwriting",
