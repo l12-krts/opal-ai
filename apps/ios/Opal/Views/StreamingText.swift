@@ -61,6 +61,6 @@ struct StreamingText: View {
     }
 
     static func markdown(_ s: String) -> AttributedString {
-        (try? AttributedString(markdown: s, options: .init(interpretedSyntax: .inlineOnlyPreservingWhitespace))) ?? AttributedString(s)
+        MarkdownBlock.inline(s)
     }
 }

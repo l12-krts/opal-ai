@@ -5,6 +5,8 @@ import SwiftUI
 struct NewCodeThreadView: View {
     @Environment(CodeStore.self) private var code
     @Environment(Shell.self) private var shell
+    @Environment(SessionStore.self) private var session
+    @Environment(\.accent) private var accent
     @State private var target: Target?
     @State private var agents: [String] = ["claude"]
     @State private var models: [String: String] = [:]
@@ -43,7 +45,7 @@ struct NewCodeThreadView: View {
                             Text("In its own worktree, so your checkout stays untouched").font(.system(size: 13)).foregroundStyle(.secondary)
                         }
                     }
-                    .tint(Color.accentColor)
+                    .tint(accent.line)
                     .padding(14)
                     .background(Color.wash, in: .rect(cornerRadius: 18, style: .continuous))
                 }
@@ -69,11 +71,12 @@ struct NewCodeThreadView: View {
                 focus: $focused,
                 onSend: start,
                 onStop: {}
-            ) {
-                ModeMenu(mode: mode) { m in
-                    withAnimation(Motion.morph) { mode = m }
-                    withAnimation(Motion.dismiss) { menuOpen = false }
-                }
+            )
+        }
+        .composerMenu(open: menuOpen) {
+            ModeMenu(mode: mode) { m in
+                withAnimation(Motion.morph) { mode = m }
+                withAnimation(Motion.dismiss) { menuOpen = false }
             }
         }
         .background(Color.canvas.ignoresSafeArea())
@@ -81,6 +84,20 @@ struct NewCodeThreadView: View {
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.visible, for: .navigationBar)
         .onAppear(perform: pickDefault)
+        // Opened before Code's state arrived (a cold start straight to New task): pick once it does.
+        .onChange(of: code.machines.count) { _, _ in pickDefault() }
+        .task { await loadDefaults() }
+    }
+
+    /// The defaults from Code → General (agent, approvals, new worktree).
+    private func loadDefaults() async {
+        struct Res: Decodable { let settings: CodeSettings }
+        guard let s = try? await session.api.send("/api/code/settings", as: Res.self).settings else { return }
+        withAnimation(Motion.morph) {
+            if agents == ["claude"] { agents = [s.defaultAgent] }
+            if mode == "auto" { mode = s.defaultMode }
+            if !worktree { worktree = s.worktreeByDefault }
+        }
     }
 
     // MARK: Where
@@ -114,7 +131,7 @@ struct NewCodeThreadView: View {
                 if target == t {
                     Image(systemName: "checkmark.circle.fill")
                         .font(.system(size: 19))
-                        .foregroundStyle(Color.accentColor)
+                        .foregroundStyle(accent.line)
                         .transition(.scale(scale: 0.6).combined(with: .opacity))
                 }
             }
@@ -166,9 +183,11 @@ struct NewCodeThreadView: View {
                 HStack(spacing: 8) {
                     AgentGlyph(agent: id, size: 18)
                     Text(label).font(.system(size: 15, weight: .semibold)).foregroundStyle(.primary)
+                        .lineLimit(1)
+                        .minimumScaleFactor(0.85)
                     Spacer(minLength: 0)
                     Image(systemName: on ? "checkmark.circle.fill" : "circle")
-                        .foregroundStyle(on ? Color.accentColor : Color.secondary)
+                        .foregroundStyle(on ? accent.line : Color.secondary)
                         .contentTransition(.symbolEffect(.replace))
                 }
                 .contentShape(.rect)
@@ -195,10 +214,10 @@ struct NewCodeThreadView: View {
         }
         .padding(14)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(on ? Color.accentColor.opacity(0.1) : Color.wash, in: .rect(cornerRadius: 18, style: .continuous))
+        .background(on ? accent.line.opacity(0.1) : Color.wash, in: .rect(cornerRadius: 18, style: .continuous))
         .overlay {
             RoundedRectangle(cornerRadius: 18, style: .continuous)
-                .stroke(on ? Color.accentColor.opacity(0.5) : .clear, lineWidth: 1)
+                .stroke(on ? accent.line.opacity(0.5) : .clear, lineWidth: 1)
         }
         .sensoryFeedback(.selection, trigger: on)
     }
@@ -235,7 +254,8 @@ struct NewCodeThreadView: View {
                     machineId: machineId,
                     agents: agents.map { (agent: $0, model: models[$0]) },
                     mode: mode,
-                    worktree: worktree,
+                    // Only Git projects can branch off; several agents each get their own anyway.
+                    worktree: worktree && project?.isGit == true,
                     text: task
                 )
                 text = ""

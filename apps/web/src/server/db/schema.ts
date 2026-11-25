@@ -219,7 +219,9 @@ export const artifact = pgTable(
     id: text("id").primaryKey(),
     userId: userRef(),
     conversationId: text("conversation_id").references(() => conversation.id, { onDelete: "set null" }),
-    kind: text("kind", { enum: ["quiz", "flashcards", "ui", "handwriting", "document"] }).notNull(),
+    // doc, slides, sheet, chart and whiteboard are documents (lib/documents.ts). A text column, so
+    // adding a kind needs no migration.
+    kind: text("kind", { enum: ["quiz", "flashcards", "ui", "handwriting", "document", "doc", "slides", "sheet", "chart", "whiteboard"] }).notNull(),
     title: text("title").notNull(),
     data: jsonb("data").$type<Record<string, unknown>>().notNull(),
     createdAt: createdAt(),
@@ -275,7 +277,7 @@ export const attachment = pgTable(
     conversationId: text("conversation_id").references(() => conversation.id, { onDelete: "cascade" }),
     name: text("name").notNull(),
     mediaType: text("media_type").notNull(),
-    kind: text("kind", { enum: ["image", "pdf", "text"] }).notNull(),
+    kind: text("kind", { enum: ["image", "pdf", "text", "file"] }).notNull(),
     size: integer("size").notNull(),
     data: bytea("data").notNull(),
     text: text("text"),

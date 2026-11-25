@@ -22,7 +22,7 @@ const MAX_STORED_TEXT = 400_000;
 const MAX_TEXT_PER_FILE = 60_000;
 const MAX_TEXT_PER_MESSAGE = 150_000;
 
-export type AttachmentView = { id: string; name: string; mediaType: string; kind: "image" | "pdf" | "text"; size: number; url: string };
+export type AttachmentView = { id: string; name: string; mediaType: string; kind: "image" | "pdf" | "text" | "file"; size: number; url: string };
 
 function cleanName(name: string): string {
   // Keep it printable and short; it is shown in the UI and quoted to the model.
@@ -101,6 +101,69 @@ export async function saveUpload(userId: string, file: Blob, rawName: string): P
   return { id, name, mediaType, kind, size: buf.length, url: `/api/attachments/${id}` };
 }
 
+// What an agent's file is, by its extension, when its content doesn't say (office files, media,
+// archives). Only used to label it and pick a viewer; it is always served as a download.
+const BY_EXTENSION: Record<string, string> = {
+  csv: "text/csv",
+  md: "text/markdown",
+  json: "application/json",
+  html: "text/html",
+  svg: "image/svg+xml",
+  docx: "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+  pptx: "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+  doc: "application/msword",
+  xls: "application/vnd.ms-excel",
+  ppt: "application/vnd.ms-powerpoint",
+  zip: "application/zip",
+  gz: "application/gzip",
+  tar: "application/x-tar",
+  mp3: "audio/mpeg",
+  wav: "audio/wav",
+  m4a: "audio/mp4",
+  mp4: "video/mp4",
+  mov: "video/quicktime",
+  webm: "video/webm",
+};
+
+/**
+ * Store a file an agent made or downloaded on its computer, to show in the chat. Any kind of file:
+ * images, PDFs and text are recognised by their content; anything else is kept as it is.
+ */
+export async function saveAgentFile(userId: string, conversationId: string | null, rawName: string, data: Buffer, scrub?: (s: string) => string): Promise<AttachmentView> {
+  if (data.length === 0) throw new ApiError(400, "empty_file", "The file is empty");
+  if (data.length > ATTACHMENT_LIMITS.maxBytes) throw new ApiError(413, "too_large", "Files can be up to 20 MB");
+  const name = cleanName(rawName);
+  const ext = name.includes(".") ? name.split(".").pop()!.toLowerCase() : "";
+  let buf = data;
+  const type = sniff(buf);
+  let kind: AttachmentView["kind"];
+  let mediaType: string;
+  let text: string | null = null;
+  if (type === "png" || type === "jpeg" || type === "gif" || type === "webp") {
+    kind = "image";
+    mediaType = `image/${type}`;
+  } else if (type === "pdf") {
+    kind = "pdf";
+    mediaType = "application/pdf";
+  } else {
+    const decoded = buf.length <= ATTACHMENT_LIMITS.maxTextBytes ? decodeText(buf) : null;
+    if (decoded !== null && !["docx", "xlsx", "pptx", "zip"].includes(ext)) {
+      kind = "text";
+      mediaType = BY_EXTENSION[ext]?.startsWith("text/") || ext === "json" || ext === "svg" ? BY_EXTENSION[ext] : "text/plain";
+      text = scrub ? scrub(decoded) : decoded;
+      buf = Buffer.from(text, "utf8");
+      text = text.slice(0, MAX_STORED_TEXT);
+    } else {
+      kind = "file";
+      mediaType = BY_EXTENSION[ext] ?? "application/octet-stream";
+    }
+  }
+  const id = nanoid();
+  await db.insert(attachment).values({ id, userId, conversationId, name, mediaType, kind, size: buf.length, data: buf, text });
+  return { id, name, mediaType, kind, size: buf.length, url: `/api/attachments/${id}` };
+}
+
 export function attachmentId(url: string): string | null {
   return URL_RE.exec(url)?.[1] ?? null;
 }
@@ -174,6 +237,10 @@ export async function expandAttachments(userId: string, messages: OpalUIMessage[
       if (row.kind === "image") {
         if (vision) parts.push({ type: "file", mediaType: row.mediaType, filename: row.name, url: `data:${row.mediaType};base64,${row.data.toString("base64")}` });
         else parts.push({ type: "text", text: `[The user attached an image, "${row.name}". The current model can't see images; say so if the image matters.]` });
+        continue;
+      }
+      if (row.kind === "file") {
+        parts.push({ type: "text", text: `[Attached file "${row.name}" (${row.mediaType}, ${row.size.toLocaleString("en")} bytes); its content can't be read as text here]` });
         continue;
       }
       const full = row.text ?? "";

@@ -3,6 +3,7 @@ import { tool } from "ai";
 import { z } from "zod";
 import { ensureSandbox, execIn, SandboxUnavailableError, touchSandbox } from "../../sandbox/docker";
 import { redact, resolvePlaceholders } from "../../vault";
+import { ATTACHMENT_LIMITS, saveAgentFile } from "../../attachments";
 import type { RunContext } from "../context";
 
 const PATH = z
@@ -178,6 +179,41 @@ export function sandboxTools(ctx: RunContext) {
           if (res.exitCode !== 0) return { ok: false, error: res.stderr.slice(0, 300) };
           await touchSandbox(ctx.sandboxAgentId);
           return { ok: true, path: abs, bytes: Buffer.byteLength(content) };
+        } catch (err) {
+          return fail(err);
+        }
+      },
+    }),
+
+    share_file: tool({
+      description:
+        "Attach a file from this agent's workspace to the chat, so the user can open it in Opal (a report, spreadsheet, slide deck, image, PDF, audio, zip…). Up to 20 MB. Use it whenever you made or downloaded something the user should have, then mention it in your reply.",
+      inputSchema: z.object({
+        path: PATH,
+        name: z.string().max(120).optional().describe("Name to show; defaults to the file's own name"),
+      }),
+      execute: async ({ path, name }) => {
+        try {
+          const c = await sb();
+          const abs = inWorkspace(path);
+          const stat = await execIn(c, ["stat", "-L", "-c", "%s %F", abs], { timeoutSec: 10 });
+          if (stat.exitCode !== 0) return { ok: false, error: `No such file: ${path}` };
+          const [bytes, ...kind] = stat.stdout.trim().split(" ");
+          if (!kind.join(" ").startsWith("regular")) return { ok: false, error: `${path} is not a file` };
+          const size = Number(bytes);
+          if (size > ATTACHMENT_LIMITS.maxBytes) return { ok: false, error: "Files can be up to 20 MB" };
+          // Binary-safe: the file comes out as base64 and goes into Opal's own storage.
+          const res = await execIn(c, ["base64", "-w0", abs], { timeoutSec: 40, maxOutput: Math.ceil(size / 3) * 4 + 1024 });
+          if (res.exitCode !== 0 || res.truncated) return { ok: false, error: (res.stderr || "Could not read the file").slice(0, 300) };
+          const file = await saveAgentFile(
+            ctx.userId,
+            ctx.conversationId,
+            name?.trim() || abs.split("/").pop() || "file",
+            Buffer.from(res.stdout.trim(), "base64"),
+            (text) => redact(text, ctx.secretValues),
+          );
+          await touchSandbox(ctx.sandboxAgentId);
+          return { ok: true, file };
         } catch (err) {
           return fail(err);
         }

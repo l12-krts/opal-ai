@@ -19,6 +19,9 @@ struct CodeMachine: Decodable, Identifiable, Hashable {
     let hostname: String
     let online: Bool
     let agents: [AgentInfo]
+    /// Where new projects go on this machine.
+    var projectsRoot: String?
+    var lastSeenAt: Date?
 
     func agent(_ id: String) -> AgentInfo? { agents.first { $0.id == id } }
 }
@@ -160,17 +163,26 @@ final class CodeStore {
         }
     }
 
+    /// What it was last time first (kept on the phone, so it shows at once and offline), then the
+    /// server's.
     func load() async {
         guard let session else { return }
         struct State: Decodable { let machines: [CodeMachine]; let projects: [CodeProject]; let threads: [CodeThread] }
+        let path = "/api/code/state"
+        if !loaded, let kept = session.api.cached(path, as: State.self) {
+            machines = kept.machines
+            projects = kept.projects
+            threads = kept.threads
+            loaded = true
+        }
         do {
-            let s = try await session.api.send("/api/code/state", as: State.self)
+            let s = try await session.api.send(path, as: State.self, cache: true)
             machines = s.machines
             projects = s.projects
             withAnimation(Motion.morph) { threads = s.threads }
             error = nil
         } catch {
-            if !loaded { self.error = error.localizedDescription }
+            if !loaded { self.error = Connectivity.describe(error) }
         }
         loaded = true
     }
@@ -237,8 +249,14 @@ final class CodeStore {
     func open(_ threadId: String) async {
         guard let session else { return }
         struct Res: Decodable { let thread: CodeThread; let items: [CodeItem] }
+        let path = "/api/code/threads/\(threadId)"
+        // The thread as it was last time while the server's copy comes.
+        if items[threadId] == nil, let kept = session.api.cached(path, as: Res.self) {
+            items[threadId] = kept.items
+            replace(kept.thread)
+        }
         do {
-            let res = try await session.api.send("/api/code/threads/\(threadId)", as: Res.self)
+            let res = try await session.api.send(path, as: Res.self, cache: true)
             items[threadId] = res.items
             replace(res.thread)
         } catch {}

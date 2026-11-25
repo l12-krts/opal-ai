@@ -18,6 +18,9 @@ targets:
     platform: iOS
     sources:
       - path: Opal
+    scheme:
+      testTargets:
+        - OpalUITests
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: app.opal.ios
@@ -43,3 +46,19 @@ targets:
         NSAppTransportSecurity:
           # Only for talking to the local dev server; production is https.
           NSAllowsLocalNetworking: true
+
+  # Screenshots of every screen in demo mode (no server). CI runs it on a simulator.
+  OpalUITests:
+    type: bundle.ui-testing
+    platform: iOS
+    sources:
+      - path: OpalUITests
+    dependencies:
+      - target: Opal
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: app.opal.ios.uitests
+        GENERATE_INFOPLIST_FILE: YES
+        TEST_TARGET_NAME: Opal
+        SWIFT_VERSION: "5.0"
+        SWIFT_STRICT_CONCURRENCY: minimal

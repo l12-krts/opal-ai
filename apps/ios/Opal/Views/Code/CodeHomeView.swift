@@ -13,25 +13,25 @@ struct CodeHomeView: View {
             } else if code.machines.isEmpty {
                 empty(
                     title: "Connect a machine",
-                    text: "Opal Code runs Claude Code and Codex on your own computers. On the web, open Code → Machines → Connect a machine, then run the command it shows on that computer.",
+                    text: "Opal Code runs Claude Code and Codex on your own computers. Connect one and its agents show up here.",
                     systemImage: "desktopcomputer"
-                )
+                ) {
+                    AccentButton(title: "Connect a machine", systemImage: "plus") { shell.open(.settings(.codeMachines)) }
+                }
             } else if code.threads.isEmpty {
-                empty(title: "No threads yet", text: "Start a task and an agent works on it on your machine. You can follow along here.", systemImage: "chevron.left.forwardslash.chevron.right")
+                empty(title: "No threads yet", text: "Start a task and an agent works on it on your machine. You can follow along here.", systemImage: "chevron.left.forwardslash.chevron.right") {
+                    EmptyView()
+                }
             } else {
                 inbox
             }
         }
+        .animation(Motion.morph, value: code.loaded)
         .topBar {
             ScreenHeader {
-                Text("Code")
-                    .font(.system(size: 16, weight: .semibold))
-                    .padding(.horizontal, 18)
-                    .frame(height: 40)
-                    .opalGlass(in: Capsule())
+                HeaderTitle(text: "Code")
             } trailing: {
-                GlassIconButton("arrow.clockwise", accessibility: "Refresh") { Task { await code.load() } }
-                    .opacity(code.loaded ? 1 : 0)
+                settingsMenu
             }
         }
         .bottomBar {
@@ -69,7 +69,7 @@ struct CodeHomeView: View {
                     Section {
                         ForEach(list) { row($0) }
                     } header: {
-                        sectionHeader(section.title, count: list.count, tint: section == .needs ? .orange : .secondary)
+                        sectionHeader(section.title, count: list.count, tint: section == .needs ? Color.warning : .secondary)
                     }
                 }
             }
@@ -102,7 +102,7 @@ struct CodeHomeView: View {
                 ForEach(code.machines) { m in
                     HStack(spacing: 7) {
                         Circle()
-                            .fill(m.online ? Color.green : Color.secondary.opacity(0.5))
+                            .fill(m.online ? Color.success : Color.secondary.opacity(0.5))
                             .frame(width: 7, height: 7)
                         Text(m.name).font(.system(size: 14, weight: .medium))
                         if m.online && m.agents.contains(where: { $0.signedIn == false && ($0.id == "claude" || $0.id == "codex") }) {
@@ -153,7 +153,25 @@ struct CodeHomeView: View {
         }
     }
 
-    private func empty(title: String, text: String, systemImage: String) -> some View {
+    /// Code's settings, the same four pages as the web's Code sidebar footer.
+    private var settingsMenu: some View {
+        Menu {
+            Button { shell.open(.settings(.codeGeneral)) } label: { Label("General", systemImage: SettingsPage.codeGeneral.systemImage) }
+            Button { shell.open(.settings(.codeMachines)) } label: { Label("Machines", systemImage: SettingsPage.codeMachines.systemImage) }
+            Button { shell.open(.settings(.codeProjects)) } label: { Label("Projects", systemImage: SettingsPage.codeProjects.systemImage) }
+            Button { shell.open(.settings(.codeSkills)) } label: { Label("Skills", systemImage: SettingsPage.codeSkills.systemImage) }
+        } label: {
+            Image(systemName: "slider.horizontal.3")
+                .font(.system(size: 17, weight: .medium))
+                .foregroundStyle(.primary)
+                .frame(width: 44, height: 44)
+                .contentShape(Circle())
+                .opalGlass(in: Circle(), interactive: true)
+        }
+        .accessibilityLabel("Code settings")
+    }
+
+    private func empty<Action: View>(title: String, text: String, systemImage: String, @ViewBuilder action: () -> Action) -> some View {
         VStack(spacing: 14) {
             Image(systemName: systemImage)
                 .font(.system(size: 30, weight: .light))
@@ -166,13 +184,16 @@ struct CodeHomeView: View {
                 .foregroundStyle(.secondary)
                 .multilineTextAlignment(.center)
                 .frame(maxWidth: 320)
+            action().padding(.top, 6)
         }
         .padding(24)
         .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .transition(.opacity)
     }
 }
 
 struct CodeThreadRow: View {
+    @Environment(\.accent) private var accent
     let thread: CodeThread
     let project: CodeProject?
 
@@ -218,7 +239,7 @@ struct CodeThreadRow: View {
                 WorkingMark(size: 10)
                 Text("Working").font(.system(size: 12, weight: .medium))
             }
-            .foregroundStyle(Color.accentColor)
+            .foregroundStyle(accent.line)
         case "waiting":
             Label("Needs you", systemImage: "hand.raised.fill")
                 .font(.system(size: 12, weight: .medium))
@@ -230,7 +251,7 @@ struct CodeThreadRow: View {
                 .foregroundStyle(.red)
         default:
             if thread.unread {
-                Circle().fill(Color.accentColor).frame(width: 7, height: 7).accessibilityLabel("Unread")
+                Circle().fill(accent.line).frame(width: 7, height: 7).accessibilityLabel("Unread")
             }
         }
     }

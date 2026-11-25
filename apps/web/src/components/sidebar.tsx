@@ -25,6 +25,7 @@ import {
   IconTrash,
   IconDeviceDesktop,
   IconChevronDown,
+  IconFiles,
 } from "@tabler/icons-react";
 import { OpalMark, OpalWordmark } from "./brand";
 import { IconAgent } from "./icons";
@@ -46,6 +47,7 @@ type NavIcon = React.ComponentType<{ size?: number; stroke?: number; className?:
 const NAV: { href: string; label: string; icon: NavIcon }[] = [
   { href: "/code", label: "Code", icon: IconCode },
   { href: "/agents", label: t("nav.agents"), icon: IconAgent },
+  { href: "/documents", label: t("nav.documents"), icon: IconFiles },
   { href: "/customization", label: t("nav.customization"), icon: IconSparkles },
   { href: "/settings", label: t("nav.settings"), icon: IconSettings },
 ];

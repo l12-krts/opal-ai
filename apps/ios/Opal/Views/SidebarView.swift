@@ -7,6 +7,7 @@ struct SidebarView: View {
     @Environment(SessionStore.self) private var session
     @Environment(Shell.self) private var shell
     @Environment(CodeStore.self) private var code
+    @Environment(\.accent) private var accent
     @State private var searching = false
     @State private var query = ""
     @FocusState private var searchFocused: Bool
@@ -20,11 +21,22 @@ struct SidebarView: View {
             ScrollView {
                 VStack(alignment: .leading, spacing: 2) {
                     if !searching {
-                        NavRow(title: "Opal Code", systemImage: "chevron.left.forwardslash.chevron.right", badge: code.needsYouCount, active: shell.route == .code) {
+                        // Memory, skills and connectors live in Customization; study and
+                        // handwriting in Settings (as on the web).
+                        NavRow(title: "Code", glyph: .code, badge: code.needsYouCount, active: shell.route == .code) {
                             shell.go(.code)
                         }
-                        NavRow(title: "Agents", systemImage: "person.2", active: shell.route == .agents) {
+                        NavRow(title: "Agents", glyph: .agents, active: shell.route == .agents) {
                             shell.go(.agents)
+                        }
+                        NavRow(title: "Documents", glyph: .documents, active: shell.route == .documents) {
+                            shell.go(.documents)
+                        }
+                        NavRow(title: "Customization", glyph: .customization, active: shell.route == .customization) {
+                            shell.go(.customization)
+                        }
+                        NavRow(title: "Settings", glyph: .settings, active: shell.route == .settings) {
+                            shell.go(.settings)
                         }
                         Color.clear.frame(height: 14)
                     }
@@ -187,22 +199,27 @@ struct SidebarView: View {
                 Button { shell.newChat() } label: {
                     Label("New chat", systemImage: "square.and.pencil")
                         .font(.system(size: 17, weight: .semibold))
-                        .foregroundStyle(.white)
+                        .foregroundStyle(accent.fg)
                         .padding(.horizontal, 20)
                         .frame(height: 50)
-                        .opalGlass(in: Capsule(), interactive: true, tint: .accentColor)
+                        .background(accent.fill, in: Capsule())
+                        .opalGlass(in: Capsule(), interactive: true, tint: accent.fill)
                 }
                 .buttonStyle(PressableStyle())
                 Spacer()
-                Button { shell.go(.settings) } label: {
+                Menu {
+                    Section(session.userName ?? "") {
+                        Button { shell.go(.settings) } label: { Label("Settings", systemImage: "gearshape") }
+                        Button(role: .destructive) { session.signOut() } label: { Label("Sign out", systemImage: "rectangle.portrait.and.arrow.right") }
+                    }
+                } label: {
                     Text(initials)
                         .font(.system(size: 16, weight: .semibold))
                         .foregroundStyle(.primary)
                         .frame(width: 50, height: 50)
                         .opalGlass(in: Circle(), interactive: true)
                 }
-                .buttonStyle(PressableStyle(scale: 0.94))
-                .accessibilityLabel("Settings")
+                .accessibilityLabel("Account")
             }
         }
         .padding(.horizontal, 16)
@@ -217,10 +234,10 @@ struct SidebarView: View {
     }
 }
 
-/// A place in the sidebar: icon, title, and a count when something waits for you.
+/// A place in the sidebar: icon (the web's), title, and a count when something waits for you.
 struct NavRow: View {
     let title: String
-    let systemImage: String
+    let glyph: NavGlyph
     var badge: Int = 0
     var active = false
     let action: () -> Void
@@ -228,8 +245,7 @@ struct NavRow: View {
     var body: some View {
         Button(action: action) {
             HStack(spacing: 14) {
-                Image(systemName: systemImage)
-                    .font(.system(size: 18, weight: .regular))
+                NavIcon(glyph: glyph, size: 23)
                     .frame(width: 26)
                 Text(title).font(.system(size: 17, weight: .regular))
                 Spacer(minLength: 0)

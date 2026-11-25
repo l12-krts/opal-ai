@@ -5,20 +5,33 @@ struct CodeThreadView: View {
     let threadId: String
     @Environment(CodeStore.self) private var code
     @Environment(Shell.self) private var shell
+    @Environment(SessionStore.self) private var session
     @State private var draft = ""
     @FocusState private var focused: Bool
     @State private var menuOpen = false
     @State private var sendError: String?
     @State private var confirmDelete = false
+    @State private var showGit = false
+    @State private var skills: [SlashSkill] = []
+    /// Whether the end of the thread is on screen. New output only scrolls the thread while it
+    /// is, so reading further up is never yanked away.
+    @State private var atEnd = true
+    /// Where the end and the composer are on screen; not observed, so writing it doesn't redraw.
+    @State private var end = ScrollMark()
+    /// The thread's scroll proxy, for the composer (which sits outside the scroll view).
+    @State private var scroller: ScrollViewProxy?
 
     private var thread: CodeThread? { code.thread(threadId) }
     private var items: [CodeItem] { code.items[threadId] ?? [] }
     private var working: Bool { thread?.status == "working" }
+    private var isGit: Bool { thread.map { code.project($0.projectId)?.isGit ?? ($0.branch != nil) } ?? false }
 
     var body: some View {
         ScrollViewReader { proxy in
             ScrollView {
-                LazyVStack(alignment: .leading, spacing: 18) {
+                // A plain VStack: every row has its real height up front, so following the end
+                // never lands on an estimate and jumps.
+                VStack(alignment: .leading, spacing: 18) {
                     ForEach(items) { item in
                         CodeItemView(item: item, threadId: threadId)
                             .id(item.id)
@@ -32,35 +45,88 @@ struct CodeThreadView: View {
                         .transition(.opacity)
                     }
                     if let sendError {
-                        Label(sendError, systemImage: "exclamationmark.circle").font(.footnote).foregroundStyle(.red)
+                        Label(sendError, systemImage: "exclamationmark.circle").font(.footnote).foregroundStyle(Color.danger)
                     }
                     Color.clear.frame(height: 1).id("bottom")
+                        // The end on screen, against where the composer starts (both in window
+                        // coordinates, so no insets to get wrong).
+                        .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: { y in
+                            end.top = y
+                            updateAtEnd()
+                        }
                 }
                 .padding(.horizontal, 18)
                 .padding(.vertical, 12)
                 .animation(Motion.morph, value: working)
             }
             .scrollDismissesKeyboard(.interactively)
-            .defaultScrollAnchor(.bottom)
-            .onChange(of: items.count) { withAnimation(Motion.morph) { proxy.scrollTo("bottom", anchor: .bottom) } }
-            .onChange(of: items.last?.data) { proxy.scrollTo("bottom", anchor: .bottom) }
+            .startsAtBottom()
+            .onAppear { scroller = proxy }
+            .onChange(of: items.count) { _, _ in
+                guard atEnd else { return }
+                withAnimation(Motion.morph) { proxy.scrollTo("bottom", anchor: .bottom) }
+            }
+            .onChange(of: items.last?.data) { _, _ in
+                if atEnd { proxy.scrollTo("bottom", anchor: .bottom) }
+            }
+            .overlay(alignment: .bottom) {
+                if !atEnd && !items.isEmpty {
+                    Button {
+                        withAnimation(Motion.morph) { proxy.scrollTo("bottom", anchor: .bottom) }
+                    } label: {
+                        Image(systemName: "arrow.down")
+                            .font(.system(size: 15, weight: .semibold))
+                            .foregroundStyle(.primary)
+                            .frame(width: 40, height: 40)
+                            .opalGlass(in: Circle(), interactive: true)
+                    }
+                    .buttonStyle(PressableStyle(scale: 0.92))
+                    .accessibilityLabel("Scroll to latest")
+                    .padding(.bottom, 10)
+                    .transition(.opacity.combined(with: .scale(scale: 0.9)))
+                }
+            }
+            .animation(Motion.quick, value: atEnd)
         }
         .overlay { MenuScrim(open: $menuOpen) }
         .bottomBar {
-            Composer(
-                text: $draft,
-                placeholder: "Message \(CodeAgents.label(thread?.agent ?? "claude"))",
-                busy: working && draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                canSend: !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                menuOpen: $menuOpen,
-                focus: $focused,
-                onSend: send,
-                onStop: { Task { await code.interrupt(threadId) } }
-            ) {
-                ModeMenu(mode: thread?.mode ?? "auto") { mode in
-                    Task { await code.patch(threadId, ["mode": .string(mode)]) }
-                    withAnimation(Motion.dismiss) { menuOpen = false }
+            VStack(spacing: 0) {
+                if let list = suggestions, !list.isEmpty {
+                    SuggestList(items: list) { pick($0) }
+                        .padding(.horizontal, 12)
+                        .transition(.opacity.combined(with: .offset(y: 8)).combined(with: .scale(scale: 0.98, anchor: .bottom)))
                 }
+                Composer(
+                    text: $draft,
+                    placeholder: working ? "Send a follow-up (it runs after this turn)" : "Message \(CodeAgents.label(thread?.agent ?? "claude"))",
+                    busy: working && draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                    canSend: !draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+                    menuOpen: $menuOpen,
+                    focus: $focused,
+                    onSend: send,
+                    onStop: { Task { await code.interrupt(threadId) } }
+                )
+                .onGeometryChange(for: CGFloat.self) { $0.frame(in: .global).minY } action: { top in
+                    let old = end.bottom
+                    end.bottom = top
+                    // The keyboard pushed the composer up while the latest output was in view:
+                    // keep it there.
+                    if old < .greatestFiniteMagnitude, top < old - 1, end.top <= old + 80 {
+                        // A moment later, once the scroll view has taken the keyboard's room.
+                        Task { @MainActor in
+                            try? await Task.sleep(for: .milliseconds(40))
+                            withAnimation(.easeOut(duration: 0.25)) { scroller?.scrollTo("bottom", anchor: .bottom) }
+                        }
+                    }
+                    updateAtEnd()
+                }
+            }
+            .animation(Motion.dismiss, value: suggestions?.isEmpty ?? true)
+        }
+        .composerMenu(open: menuOpen) {
+            ModeMenu(mode: thread?.mode ?? "auto") { mode in
+                Task { await code.patch(threadId, ["mode": .string(mode)]) }
+                withAnimation(Motion.dismiss) { menuOpen = false }
             }
         }
         .background(Color.canvas.ignoresSafeArea())
@@ -73,9 +139,23 @@ struct CodeThreadView: View {
                     Text(subtitle).font(.system(size: 11)).foregroundStyle(.secondary).lineLimit(1)
                 }
             }
+            if isGit {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button { showGit = true } label: { Image(systemName: "arrow.triangle.branch") }
+                        .accessibilityLabel("Changes")
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) { actions }
         }
+        .sheet(isPresented: $showGit) {
+            if let thread {
+                GitSheet(thread: thread)
+                    .presentationDetents([.medium, .large])
+                    .presentationDragIndicator(.visible)
+            }
+        }
         .task(id: threadId) { await code.open(threadId) }
+        .task { await loadSkills() }
         .confirmationDialog("Delete this thread?", isPresented: $confirmDelete, titleVisibility: .visible) {
             Button("Delete", role: .destructive) {
                 Task { await code.delete(threadId) }
@@ -112,17 +192,277 @@ struct CodeThreadView: View {
         .accessibilityLabel("Thread actions")
     }
 
+    private func updateAtEnd() {
+        let next = end.top <= end.bottom + 80
+        if next != atEnd { atEnd = next }
+    }
+
     private func send() {
         let text = draft.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !text.isEmpty else { return }
         draft = ""
         sendError = nil
+        atEnd = true
         Task {
             do { try await code.send(text, to: threadId) } catch {
                 draft = text
                 sendError = error.localizedDescription
             }
         }
+    }
+
+    // MARK: "/" skills
+
+    /// "/rev" typed at the very start: Code skills that match. Same rule as the web composer.
+    private var suggestions: [SuggestItem]? {
+        guard draft.hasPrefix("/"), !draft.contains("\n") else { return nil }
+        let q = String(draft.dropFirst()).lowercased()
+        guard q.count <= 40 else { return nil }
+        // Already picked: "/review " and on to the instructions.
+        if skills.contains(where: { q.hasPrefix($0.name.lowercased() + " ") }) { return nil }
+        let list = skills.filter(\.enabled).filter { q.isEmpty || "\($0.name) \($0.description)".lowercased().contains(q) }
+        return list.prefix(12).map { s in
+            let hint = s.description
+            return SuggestItem(id: s.id, label: "/\(s.name)", hint: hint.isEmpty ? "Skill" : hint, systemImage: "wand.and.stars")
+        }
+    }
+
+    private func pick(_ item: SuggestItem) {
+        draft = item.label + " "
+        focused = true
+    }
+
+    private func loadSkills() async {
+        struct Res: Decodable { let skills: [SlashSkill] }
+        skills = (try? await session.api.send("/api/code/skills", as: Res.self).skills) ?? []
+    }
+}
+
+// MARK: Git
+
+/// The thread's changes, like the web's diff panel: one section per file, then commit, push and
+/// pull request.
+struct GitSheet: View {
+    let thread: CodeThread
+    @Environment(SessionStore.self) private var session
+    @Environment(\.dismiss) private var dismiss
+    @Environment(\.openURL) private var openURL
+
+    struct Status: Decodable {
+        let branch: String?
+        let base: String?
+        let ahead: Int
+        let dirty: Bool
+        let hasRemote: Bool
+    }
+    struct Response: Decodable { let status: Status; let diff: String; let truncated: Bool?; let prUrl: String? }
+    struct FileDiff: Identifiable { let path: String; let text: String; let add: Int; let del: Int; let isNew: Bool; let isDeleted: Bool; var id: String { path } }
+
+    @State private var data: Response?
+    @State private var error: String?
+    @State private var busy: String?
+    @State private var message = ""
+    @State private var toast: Toast?
+
+    private var files: [FileDiff] { Self.parse(data?.diff ?? "") }
+
+    var body: some View {
+        NavigationStack {
+            ScrollView {
+                VStack(alignment: .leading, spacing: 10) {
+                    if data == nil && error == nil {
+                        SkeletonBlock(height: 96)
+                    }
+                    if let error { ErrorNote(text: error) }
+                    if let data {
+                        if files.isEmpty {
+                            Text(data.status.branch == nil ? "Not a Git repository" : "No changes")
+                                .font(.system(size: 15))
+                                .foregroundStyle(.secondary)
+                                .frame(maxWidth: .infinity)
+                                .padding(.vertical, 30)
+                        }
+                        ForEach(files) { f in
+                            FileSection(file: f, startOpen: files.count <= 6)
+                        }
+                        if data.truncated == true {
+                            Text("The diff is too large to show in full.").font(.system(size: 13)).foregroundStyle(.tertiary)
+                        }
+                    }
+                }
+                .padding(16)
+                .animation(Motion.morph, value: data?.diff)
+            }
+            .safeAreaInset(edge: .bottom) {
+                if let s = data?.status, s.branch != nil { actions(s) }
+            }
+            .refreshable { await load() }
+            .navigationTitle("Changes")
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    VStack(spacing: 1) {
+                        Text("Changes").font(.system(size: 15, weight: .semibold))
+                        if let b = data?.status.branch {
+                            Text(b).font(.system(size: 11, design: .monospaced)).foregroundStyle(.secondary).lineLimit(1).truncationMode(.middle)
+                        }
+                    }
+                }
+                ToolbarItem(placement: .confirmationAction) { Button("Done") { dismiss() } }
+            }
+            .toast($toast)
+        }
+        .task { await load() }
+        .onChange(of: thread.status) { _, s in if s != "working" { Task { await load() } } }
+    }
+
+    private func actions(_ s: Status) -> some View {
+        let prUrl = data?.prUrl ?? thread.prUrl
+        return VStack(alignment: .leading, spacing: 10) {
+            if s.dirty {
+                TextField("Commit message (Opal writes one if empty)", text: $message, axis: .vertical)
+                    .font(.system(size: 15))
+                    .lineLimit(1...4)
+                    .padding(.horizontal, 14)
+                    .padding(.vertical, 12)
+                    .background(Color.wash, in: .rect(cornerRadius: 14, style: .continuous))
+            }
+            FlowLayout(spacing: 8) {
+                if s.dirty {
+                    gitButton("Commit", action: "commit")
+                }
+                if s.hasRemote && (s.ahead > 0 || s.dirty) {
+                    gitButton(s.dirty ? "Commit & push" : "Push", action: s.dirty ? "commit_push" : "push")
+                }
+                if s.hasRemote {
+                    if let pr = prUrl, let url = URL(string: pr) {
+                        SmallButton(title: "Pull request", systemImage: "arrow.up.right") { openURL(url) }
+                    } else {
+                        AccentButton(title: "Create PR", pending: busy == "pr" || busy == "commit_push_pr") {
+                            Task { await run(s.dirty ? "commit_push_pr" : "pr") }
+                        }
+                        .disabled(busy != nil)
+                    }
+                }
+            }
+            if !s.hasRemote {
+                Text("No remote, so push and PRs are off.").font(.system(size: 13)).foregroundStyle(.tertiary)
+            }
+        }
+        .padding(16)
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(.bar)
+    }
+
+    private func gitButton(_ title: String, action: String) -> some View {
+        Button { Task { await run(action) } } label: {
+            HStack(spacing: 6) {
+                if busy == action { ProgressView().controlSize(.small) }
+                Text(title).font(.system(size: 15, weight: .medium))
+            }
+            .foregroundStyle(.primary)
+            .padding(.horizontal, 16)
+            .frame(height: 46)
+            .background(Color.wash, in: Capsule())
+        }
+        .buttonStyle(PressableStyle())
+        .disabled(busy != nil)
+    }
+
+    private func load() async {
+        do {
+            let r = try await session.api.send("/api/code/threads/\(thread.id)/git", as: Response.self)
+            withAnimation(Motion.morph) {
+                data = r
+                error = nil
+            }
+        } catch {
+            self.error = error.localizedDescription
+        }
+    }
+
+    private func run(_ action: String) async {
+        struct Body: Encodable { let action: String; let message: String? }
+        struct Res: Decodable { let sha: String?; let prUrl: String?; let message: String? }
+        busy = action
+        defer { busy = nil }
+        let text = message.trimmingCharacters(in: .whitespacesAndNewlines)
+        do {
+            let r = try await session.api.send("/api/code/threads/\(thread.id)/git", method: "POST", json: Body(action: action, message: text.isEmpty ? nil : text), as: Res.self)
+            if r.prUrl != nil { toast = Toast(text: "Pull request ready") }
+            else if let sha = r.sha { toast = Toast(text: "Committed \(sha)") }
+            else { toast = Toast(text: "Pushed") }
+            message = ""
+            await load()
+        } catch {
+            toast = Toast(text: error.localizedDescription, error: true)
+        }
+    }
+
+    /// Splits a unified diff into files (same rules as the web's parseDiff).
+    static func parse(_ diff: String) -> [FileDiff] {
+        guard !diff.isEmpty else { return [] }
+        var out: [FileDiff] = []
+        let chunks = diff.components(separatedBy: "\ndiff --git ")
+        for (i, raw) in chunks.enumerated() {
+            var chunk = raw
+            if i == 0 {
+                guard chunk.hasPrefix("diff --git ") else { continue }
+                chunk.removeFirst("diff --git ".count)
+            }
+            let header = chunk.prefix { $0 != "\n" }
+            let path = header.range(of: " b/").map { String(header[$0.upperBound...]) } ?? String(header)
+            let body = chunk.range(of: "@@").map { String(chunk[$0.lowerBound...]) } ?? ""
+            var add = 0, del = 0
+            for l in body.split(separator: "\n", omittingEmptySubsequences: false) {
+                if l.hasPrefix("+") && !l.hasPrefix("+++") { add += 1 } else if l.hasPrefix("-") && !l.hasPrefix("---") { del += 1 }
+            }
+            let head = chunk.prefix(400)
+            out.append(FileDiff(path: path, text: body.trimmingCharacters(in: .newlines), add: add, del: del, isNew: head.contains("\nnew file"), isDeleted: head.contains("\ndeleted file")))
+        }
+        return out
+    }
+}
+
+private struct FileSection: View {
+    let file: GitSheet.FileDiff
+    @State private var open: Bool
+
+    init(file: GitSheet.FileDiff, startOpen: Bool) {
+        self.file = file
+        _open = State(initialValue: startOpen)
+    }
+
+    var body: some View {
+        VStack(alignment: .leading, spacing: 0) {
+            Button { withAnimation(Motion.morph) { open.toggle() } } label: {
+                HStack(spacing: 8) {
+                    Image(systemName: "chevron.right")
+                        .font(.system(size: 11, weight: .semibold))
+                        .foregroundStyle(.tertiary)
+                        .rotationEffect(.degrees(open ? 90 : 0))
+                    Text(file.path)
+                        .font(.system(size: 13, design: .monospaced))
+                        .lineLimit(1)
+                        .truncationMode(.head)
+                        .frame(maxWidth: .infinity, alignment: .leading)
+                    if file.isNew { Text("new").font(.system(size: 11)).foregroundStyle(Color.success) }
+                    if file.isDeleted { Text("deleted").font(.system(size: 11)).foregroundStyle(Color.danger) }
+                    if file.add > 0 { Text("+\(file.add)").foregroundStyle(Color.success) }
+                    if file.del > 0 { Text("−\(file.del)").foregroundStyle(Color.danger) }
+                }
+                .font(.system(size: 12, weight: .medium).monospacedDigit())
+                .padding(12)
+                .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .accessibilityValue(open ? "Expanded" : "Collapsed")
+            if open && !file.text.isEmpty {
+                DiffView(diff: file.text).transition(.opacity)
+            }
+        }
+        .background(Color.wash, in: .rect(cornerRadius: 16, style: .continuous))
+        .clipShape(.rect(cornerRadius: 16, style: .continuous))
     }
 }
 
@@ -199,11 +539,11 @@ struct CodeItemView: View {
                 }
             }
         case "approval":
-            ApprovalCard(item: item, threadId: threadId)
+            CodeApprovalCard(item: item, threadId: threadId)
         case "error":
             Label(item.text, systemImage: "exclamationmark.triangle.fill")
                 .font(.system(size: 14))
-                .foregroundStyle(.red)
+                .foregroundStyle(Color.danger)
         default:
             Text(item.text)
                 .font(.system(size: 13))
@@ -245,8 +585,8 @@ struct StatusIcon: View {
     var body: some View {
         switch status {
         case "running": ProgressView().controlSize(.mini)
-        case "failed": Image(systemName: "xmark.circle.fill").foregroundStyle(.red).font(.system(size: 13))
-        case "done": Image(systemName: "checkmark.circle.fill").foregroundStyle(.green).font(.system(size: 13))
+        case "failed": Image(systemName: "xmark.circle.fill").foregroundStyle(Color.danger).font(.system(size: 13))
+        case "done": Image(systemName: "checkmark.circle.fill").foregroundStyle(Color.success).font(.system(size: 13))
         default: EmptyView()
         }
     }
@@ -415,7 +755,7 @@ struct DiffView: View {
     }
 }
 
-struct ApprovalCard: View {
+struct CodeApprovalCard: View {
     let item: CodeItem
     let threadId: String
     @Environment(CodeStore.self) private var code

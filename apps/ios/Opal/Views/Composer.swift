@@ -15,7 +15,10 @@ struct ComposerChip: Identifiable {
 ///
 /// The text field is one view throughout (a custom `Layout` moves it), so the keyboard never
 /// drops while the shape changes.
-struct Composer<Menu: View>: View {
+///
+/// The "+" menu isn't drawn here: the screen draws it with `.composerMenu`, over everything, so
+/// it isn't confined to the bar the composer sits in (where it could be cut off or miss taps).
+struct Composer: View {
     @Binding var text: String
     var placeholder: String
     var busy: Bool
@@ -24,12 +27,9 @@ struct Composer<Menu: View>: View {
     var attachments: [PendingAttachment] = []
     var onRemoveAttachment: (String) -> Void = { _ in }
     @Binding var menuOpen: Bool
-    /// The menu has grown into a large panel along the bottom of the screen (the camera).
-    var menuExpanded = false
     var focus: FocusState<Bool>.Binding
     var onSend: () -> Void
     var onStop: () -> Void
-    @ViewBuilder var menu: () -> Menu
 
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @State private var box: CGRect = .zero
@@ -37,19 +37,9 @@ struct Composer<Menu: View>: View {
     @State private var sent = 0
 
     private var width: CGFloat { box.width }
-    /// How far the large panel sits in from the screen edges.
-    private static var panelInset: CGFloat { 10 }
-
-    /// Where the large panel goes, in window coordinates: the bottom half of the screen, inset
-    /// from the edges, centred on the composer (so on iPad it stays over the chat column).
-    private var panelFrame: CGRect {
-        let screen = Screen.bounds
-        let inset = Self.panelInset
-        let w = min(box.width + 24 - inset * 2, 620)
-        let h = (screen.height * 0.5).rounded()
-        return CGRect(x: box.midX - w / 2, y: screen.height - inset - h, width: w, height: h)
-    }
-
+    /// The width to take when the container doesn't say (some bars ask for an ideal size): the
+    /// screen less the side padding, capped for iPad.
+    private var idealWidth: CGFloat { min(max(Screen.bounds.width - 24, 280), 760) }
     private static var font: Font { .system(size: 17) }
     private static var button: CGFloat { 36 }
     private static var inset: CGFloat { 8 }
@@ -61,7 +51,7 @@ struct Composer<Menu: View>: View {
     }
 
     var body: some View {
-        ComposerLayout(expanded: expanded) {
+        ComposerLayout(expanded: expanded, idealWidth: idealWidth) {
             plusButton
             field
             footer
@@ -70,25 +60,12 @@ struct Composer<Menu: View>: View {
         }
         .background(alignment: .topLeading) { measurer }
         .opalGlass(in: RoundedRectangle(cornerRadius: 26, style: .continuous))
-        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { box = $0 }
-        .overlay(alignment: .topLeading) {
-            if menuOpen {
-                let target = panelFrame
-                MenuPanel(
-                    expanded: menuExpanded,
-                    expandedSize: target.size,
-                    expandedRadius: Screen.concentric(inset: Self.panelInset)
-                ) { menu() }
-                    // Sits just above the composer, growing up and out of the "+". Expanded, it
-                    // moves down over the composer to fill the bottom of the screen.
-                    .alignmentGuide(.top) { d in d[.bottom] + 10 }
-                    .offset(
-                        x: menuExpanded ? target.minX - box.minX : 0,
-                        y: menuExpanded ? target.maxY - (box.minY - 10) : 0
-                    )
-                    .transition(reduceMotion ? AnyTransition.opacity : AnyTransition.modifier(active: PopOut(shown: 0), identity: PopOut(shown: 1)))
-            }
+        .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: {
+            box = $0
+            Flight.composer = $0
         }
+        // Where the menu attaches; resolved during layout, so it's never out of date.
+        .anchorPreference(key: ComposerAnchor.self, value: .bounds) { $0 }
         .animation(Motion.morph, value: expanded)
         .sensoryFeedback(.impact(weight: .medium, intensity: 0.7), trigger: sent)
         .padding(.horizontal, 12)
@@ -122,6 +99,9 @@ struct Composer<Menu: View>: View {
             .lineLimit(1...8)
             .focused(focus)
             .tint(Color.ink)
+            .accessibilityIdentifier("composer")
+            // Where the text is, so a sent message can fly out of it (see `Flight`).
+            .onGeometryChange(for: CGRect.self) { $0.frame(in: .global) } action: { Flight.field = $0 }
             .onChange(of: focus.wrappedValue) { _, focused in
                 // Typing again closes the menu.
                 if focused && menuOpen { withAnimation(Motion.dismiss) { menuOpen = false } }
@@ -144,11 +124,11 @@ struct Composer<Menu: View>: View {
                         }
                         .accessibilityLabel("Turn off \(chip.label)")
                     }
-                    .foregroundStyle(Color.accentColor)
+                    .foregroundStyle(.primary)
                     .padding(.leading, 10)
                     .padding(.trailing, 4)
                     .frame(height: 32)
-                    .background(Color.accentColor.opacity(0.12), in: Capsule())
+                    .background(Color.wash, in: Capsule())
                     .transition(.scale(scale: 0.9).combined(with: .opacity))
                 }
             }
@@ -207,11 +187,12 @@ struct Composer<Menu: View>: View {
 /// (attachments). Collapsed: one row. Expanded: header, field, then lead/footer/trail.
 struct ComposerLayout: Layout {
     var expanded: Bool
+    var idealWidth: CGFloat = 360
     static let gap: CGFloat = 6
     private let inset: CGFloat = 8
 
     func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
-        let w = proposal.width ?? 360
+        let w = proposal.width ?? idealWidth
         return CGSize(width: w, height: frames(width: w, subviews: subviews).height)
     }
 
@@ -329,9 +310,73 @@ struct MenuPanel<Content: View>: View {
         // A ZStack, so one page fades over the other instead of stacking under it mid-change.
         ZStack(alignment: .topLeading) { content }
             .padding(expanded ? 0 : 8)
+            // Collapsed, the menu takes its own height, not the composer's it's laid out against.
+            .fixedSize(horizontal: false, vertical: !expanded)
             .frame(width: expanded ? expandedSize.width : 300, height: expanded ? expandedSize.height : nil, alignment: .topLeading)
             .clipShape(shape)
             .opalGlass(in: shape)
+    }
+}
+
+/// Where the composer is, for the menu drawn over the screen.
+struct ComposerAnchor: PreferenceKey {
+    static var defaultValue: Anchor<CGRect>? { nil }
+    static func reduce(value: inout Anchor<CGRect>?, nextValue: () -> Anchor<CGRect>?) {
+        value = value ?? nextValue()
+    }
+}
+
+extension View {
+    /// The composer's "+" menu, drawn over the whole screen: a panel 10pt above the composer that
+    /// grows out of the "+", or (expanded, for the camera) a large panel over the bottom half of
+    /// the screen with corners that follow the display's. Apply it to the screen, outside the bar
+    /// that holds the composer.
+    func composerMenu<Menu: View>(open: Bool, expanded: Bool = false, @ViewBuilder menu: @escaping () -> Menu) -> some View {
+        overlayPreferenceValue(ComposerAnchor.self) { anchor in
+            GeometryReader { geo in
+                if let anchor {
+                    ComposerMenuLayer(open: open, expanded: expanded, composer: geo[anchor], area: geo.frame(in: .global), menu: menu)
+                }
+            }
+            // The whole screen, so every part of the panel (the camera's reaches the bottom
+            // edge) is inside the layer and takes taps.
+            .ignoresSafeArea()
+        }
+    }
+}
+
+private struct ComposerMenuLayer<Menu: View>: View {
+    let open: Bool
+    let expanded: Bool
+    /// The composer's frame, in this layer's coordinates.
+    let composer: CGRect
+    /// This layer's frame on screen.
+    let area: CGRect
+    let menu: () -> Menu
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
+    private static var inset: CGFloat { 10 }
+
+    var body: some View {
+        // The large panel: the bottom half of the screen, inset from its edges, centred on the
+        // composer (so on iPad it stays over the chat column).
+        let screen = Screen.bounds
+        // The composer sits 12pt in from the edges; the panel 10pt.
+        let w = min(composer.width + 24 - Self.inset * 2, 620)
+        let h = (screen.height * 0.5).rounded()
+        let screenBottom = screen.height - Self.inset - area.minY
+        // The panel's bottom edge and left edge, in this layer's coordinates.
+        let bottom = expanded ? screenBottom : composer.minY - Self.inset
+        let left = expanded ? composer.midX - w / 2 : composer.minX
+        ZStack(alignment: .bottomLeading) {
+            if open {
+                MenuPanel(expanded: expanded, expandedSize: CGSize(width: w, height: h), expandedRadius: Screen.concentric(inset: Self.inset)) { menu() }
+                    .transition(reduceMotion ? AnyTransition.opacity : AnyTransition.modifier(active: PopOut(shown: 0), identity: PopOut(shown: 1)))
+            }
+        }
+        .frame(width: max(area.width - left, 0), height: max(bottom, 0), alignment: .bottomLeading)
+        .offset(x: left)
+        .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
 }
 
@@ -347,27 +392,27 @@ struct PopOut: ViewModifier {
 }
 
 /// A row in a composer menu: an icon in a soft circle, a title with an optional hint, and a check
-/// or a value on the right. Rows rise in one after another as the menu opens.
+/// or a value on the right.
 struct MenuRow: View {
     let title: String
     var subtitle: String?
     let systemImage: String
     var checked = false
     var value: String?
+    /// Kept for callers; the rows no longer arrive one after another.
     var index = 0
     let action: () -> Void
 
-    @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var appeared = false
+    @Environment(\.accent) private var accent
 
     var body: some View {
         Button(action: action) {
             HStack(spacing: 12) {
                 Image(systemName: systemImage)
                     .font(.system(size: 16, weight: .regular))
-                    .foregroundStyle(checked ? Color.accentColor : .primary)
+                    .foregroundStyle(checked ? accent.line : Color.primary)
                     .frame(width: 36, height: 36)
-                    .background(checked ? Color.accentColor.opacity(0.14) : Color.wash, in: Circle())
+                    .background(checked ? accent.line.opacity(0.14) : Color.wash, in: Circle())
                 VStack(alignment: .leading, spacing: 1) {
                     Text(title).font(.system(size: 16, weight: .medium)).foregroundStyle(.primary)
                     if let subtitle {
@@ -379,7 +424,7 @@ struct MenuRow: View {
                     Text(value).font(.system(size: 14)).foregroundStyle(.secondary).lineLimit(1)
                     Image(systemName: "chevron.right").font(.system(size: 12, weight: .semibold)).foregroundStyle(.tertiary)
                 } else if checked {
-                    Image(systemName: "checkmark").font(.system(size: 14, weight: .semibold)).foregroundStyle(Color.accentColor)
+                    Image(systemName: "checkmark").font(.system(size: 14, weight: .semibold)).foregroundStyle(accent.line)
                         .transition(.scale(scale: 0.6).combined(with: .opacity))
                 }
             }
@@ -388,11 +433,6 @@ struct MenuRow: View {
             .contentShape(.rect(cornerRadius: 18))
         }
         .buttonStyle(MenuRowStyle())
-        .opacity(appeared ? 1 : 0)
-        .offset(y: appeared || reduceMotion ? 0 : 10)
-        .onAppear {
-            withAnimation(Motion.pop.delay(reduceMotion ? 0 : Double(index) * 0.03)) { appeared = true }
-        }
         .animation(Motion.quick, value: checked)
         .accessibilityAddTraits(checked ? .isSelected : [])
     }

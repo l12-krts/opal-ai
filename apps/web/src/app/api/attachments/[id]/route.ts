@@ -3,7 +3,8 @@ import { api, ApiError, idSchema } from "@/server/http";
 import { LIMITS } from "@/server/rate-limit";
 import { deleteUnsentAttachment, readAttachment } from "@/server/attachments";
 
-const INLINE = new Set(["image/png", "image/jpeg"]);
+// Images agents share aren't re-encoded, so GIF and WebP can show too.
+const INLINE = new Set(["image/png", "image/jpeg", "image/gif", "image/webp"]);
 
 export const GET = api<{ id: string }>(
   async ({ user, params }) => {
