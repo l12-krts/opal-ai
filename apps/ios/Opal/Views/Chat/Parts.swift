@@ -6,7 +6,7 @@ import UIKit
 // rows, and cards (quizzes, secrets, generated UI, handwriting) stand on their own.
 
 /// Tools that show as their own card instead of a step in the work log.
-let cardTools: Set<String> = ["request_secret", "ask_user", "render_ui", "create_quiz", "create_flashcards", "write_by_hand", "remember", "forget", "share_file"]
+let cardTools: Set<String> = Set(["request_secret", "ask_user", "render_ui", "create_quiz", "create_flashcards", "write_by_hand", "remember", "forget", "share_file"])
     .union(documentTools) // docs, slides, sheets, charts, whiteboards (Documents/DocumentModel.swift)
 /// Tools that only show when they fail.
 let hiddenTools: Set<String> = ["list_agents", "list_secrets"]
