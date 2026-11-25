@@ -341,8 +341,10 @@ struct ChartDocView: View {
         }
         .chartForegroundStyleScale(domain: names, range: names.indices.map { ChartDoc.color($0) })
         .chartLegend(names.count > 1 ? .visible : .hidden)
-        .chartXAxisLabel(chart.horizontal ? (chart.yLabel ?? "") : (chart.xLabel ?? ""))
-        .chartYAxisLabel(chart.horizontal ? (chart.xLabel ?? "") : (chart.yLabel ?? ""))
+        .modifier(AxisTitles(
+            x: compact ? nil : chart.horizontal ? chart.yLabel : chart.xLabel,
+            y: compact ? nil : chart.horizontal ? chart.xLabel : chart.yLabel
+        ))
         .chartYAxis {
             AxisMarks { v in
                 AxisGridLine()
@@ -388,6 +390,21 @@ struct ChartDocView: View {
         if a >= 1e6 { return SheetFormat.decimal(v / 1e6, max: 1) + "M" }
         if a >= 1e4 { return SheetFormat.decimal(v / 1e3, max: 1) + "k" }
         return SheetFormat.decimal(v, max: 2)
+    }
+}
+
+/// Axis titles, only when there are any (a compact chart in a card has none).
+private struct AxisTitles: ViewModifier {
+    let x: String?
+    let y: String?
+
+    @ViewBuilder func body(content: Content) -> some View {
+        switch (x, y) {
+        case (let x?, let y?): content.chartXAxisLabel(x).chartYAxisLabel(y)
+        case (let x?, nil): content.chartXAxisLabel(x)
+        case (nil, let y?): content.chartYAxisLabel(y)
+        case (nil, nil): content
+        }
     }
 }
 
@@ -634,7 +651,7 @@ struct DocPreview: View {
                 HStack(spacing: 10) {
                     ForEach(Array(d.slides.prefix(4).enumerated()), id: \.offset) { i, s in
                         SlideView(slide: s, theme: d.theme, index: i, total: d.slides.count)
-                            .frame(height: height - 24)
+                            .frame(width: (height - 24) * 16 / 9, height: height - 24)
                             .clipShape(.rect(cornerRadius: 6, style: .continuous))
                             .overlay { RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(Color.primary.opacity(0.1)) }
                     }
@@ -654,7 +671,8 @@ struct DocPreview: View {
                     .padding(8)
             }
         }
-        .frame(height: height)
+        // Top-aligned: a long doc or sheet shows its beginning.
+        .frame(height: height, alignment: .top)
         .frame(maxWidth: .infinity)
         .clipped()
         .allowsHitTesting(false)

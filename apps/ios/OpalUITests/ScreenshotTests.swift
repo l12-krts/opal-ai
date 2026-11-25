@@ -303,7 +303,8 @@ final class ScreenshotTests: XCTestCase {
                 snap(app, "docs/open-slides-2")
             }
             if kind == "sheet" {
-                let total = app.staticTexts["€184.00"].firstMatch
+                // The total (a formula) is only in the full-screen grid; the card shows the first rows.
+                let total = app.staticTexts["€673.60"].firstMatch
                 if total.waitForExistence(timeout: 2) {
                     total.tap()
                     settle(0.6)
