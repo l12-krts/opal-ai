@@ -94,9 +94,9 @@ they're up. Open https://opal.tailefea70.ts.net: you get the gate, then Google s
 
 ### Creating or updating the stack by hand (Portainer UI)
 
-If the script's stack step gets stuck (the first deploy did, from a Windows PowerShell connection
-limit that the script now works around), the images are already loaded, so do the stack step in
-Portainer:
+If the script's stack step fails (it used to hang there, which Windows PowerShell's own web
+requests caused; the script now makes every call with `curl.exe` and stops with an error after
+10 minutes at most), the images are already loaded, so do the stack step in Portainer:
 
 1. Copy the stack file:
    `Get-Content -Raw .\deploy\umbrel\docker-compose.yml | Set-Clipboard`

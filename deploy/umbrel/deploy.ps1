@@ -22,22 +22,27 @@ if (-not $key) {
   $s = Read-Host 'Portainer access token (ptr_...)' -AsSecureString
   $key = [Runtime.InteropServices.Marshal]::PtrToStringAuto([Runtime.InteropServices.Marshal]::SecureStringToBSTR($s))
 }
-$headers = @{ 'X-API-Key' = $key }
 
-# Windows PowerShell allows only 2 open connections per server and can keep finished ones
-# busy, which leaves a later request waiting forever. Lift the limit, don't reuse connections,
-# and give every call a deadline.
-[Net.ServicePointManager]::DefaultConnectionLimit = 32
-[Net.ServicePointManager]::Expect100Continue = $false
-
-function Invoke-Portainer([string]$Method, [string]$Path, $Body) {
-  $req = @{ Method = $Method; Uri = "$Portainer$Path"; Headers = $headers; UseBasicParsing = $true
-    DisableKeepAlive = $true; TimeoutSec = 120 }
+# Every Portainer call goes through curl.exe with a hard deadline. Windows PowerShell's own
+# Invoke-RestMethod hung for good on the stack create/update calls, even with a timeout set.
+# The JSON body goes in on stdin, so the secrets in it never touch the disk or the command line.
+$OutputEncoding = New-Object Text.UTF8Encoding $false
+function Invoke-Portainer([string]$Method, [string]$Path, $Body, [int]$MaxTime = 180) {
+  $curl = @('-sS', '--fail-with-body', '--max-time', $MaxTime, '-X', $Method, '-H', "X-API-Key: $key")
   if ($null -ne $Body) {
-    $req.Body = [Text.Encoding]::UTF8.GetBytes(($Body | ConvertTo-Json -Depth 8 -Compress))
-    $req.ContentType = 'application/json'
+    $json = $Body | ConvertTo-Json -Depth 8 -Compress
+    $out = $json | & curl.exe @curl -H 'Content-Type: application/json' --data-binary '@-' "$Portainer$Path"
+  } else {
+    $out = & curl.exe @curl "$Portainer$Path"
   }
-  Invoke-RestMethod @req
+  if ($LASTEXITCODE -ne 0) {
+    $why = if ($LASTEXITCODE -eq 28) { "no answer within $MaxTime s" } else { "curl exit $LASTEXITCODE" }
+    throw "Portainer $Method $Path failed ($why): $out"
+  }
+  $text = ($out -join "`n").Trim()
+  # Through a variable, so a JSON array comes out as separate items (Windows PowerShell's
+  # ConvertFrom-Json passes an array on as one object).
+  if ($text) { $result = $text | ConvertFrom-Json; $result }
 }
 
 # Portainer's local Docker environment (the docker-in-docker daemon on the Umbrel).
@@ -75,12 +80,12 @@ if ($stack) {
   Write-Host "==> updating stack $StackName (id $($stack.Id))"
   Invoke-Portainer PUT "/api/stacks/$($stack.Id)?endpointId=$eid" @{
     stackFileContent = $compose; env = $envList; prune = $true; pullImage = $false
-  } | Out-Null
+  } -MaxTime 600 | Out-Null
 } else {
   Write-Host "==> creating stack $StackName"
   Invoke-Portainer POST "/api/stacks/create/standalone/string?endpointId=$eid" @{
     name = $StackName; stackFileContent = $compose; env = $envList
-  } | Out-Null
+  } -MaxTime 600 | Out-Null
 }
 # Portainer deploys in the background; follow the containers until they settle.
 $filter = [uri]::EscapeDataString("{`"label`":[`"com.docker.compose.project=$StackName`"]}")
